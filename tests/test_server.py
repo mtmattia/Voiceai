@@ -304,3 +304,19 @@ def test_gpu_lock_tra_processi(env, tmp_path):
     w.yield_gpu()
     assert p.communicate(timeout=10)[0].strip() == "preso"
     assert not w.engine.loaded and not w.shared.held
+
+
+def test_cronologia(env, monkeypatch):
+    cfg, db, w, c = env
+    t0 = time.mktime((2026, 10, 28, 8, 23, 0, 0, 0, -1))
+    up(c, BLOCK1, 0, t0)
+    assert w.step()
+    me, marco = [u["person_id"] for u in db.q("SELECT person_id FROM utterances ORDER BY ts")][:2]
+    c.patch(f"/api/persons/{me}", headers=H, json={"name": "Mattia", "is_owner": True})
+    c.patch(f"/api/persons/{marco}", headers=H, json={"name": "Marco"})
+    db.q("INSERT INTO asks(ts, question) VALUES(?,?)", (t0 + 600, "cosa ha detto Marco?"))
+    ev = c.get("/api/days/2026-10-28/timeline", headers=H).json()
+    assert [(e["ora"], e["text"]) for e in ev] == [
+        ("08:23", "Mattia parla con Marco"), ("08:33", "Mattia parla con AI: «cosa ha detto Marco?»")]
+    assert ev[0]["recording_id"] == 1
+    assert c.get("/api/days/28-10-2026/timeline", headers=H).status_code == 400

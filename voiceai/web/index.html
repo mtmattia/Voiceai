@@ -24,6 +24,8 @@ input.grow{flex:1}
 .due{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:4px}.due.esplicita{background:var(--acc);color:#fff}
 .due.ipotizzata{border:1px dashed var(--warn);color:var(--warn)}.due.late{background:#7a1d24;color:#fff}
 .ans{white-space:pre-wrap}
+.ev{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}
+.ev .t{color:var(--mut);font-variant-numeric:tabular-nums;min-width:96px}.ev.ai .x{color:var(--acc)}.ev.memo .x{color:var(--ok)}
 .utt{padding:4px 0;border-bottom:1px solid var(--line)}.utt:last-child{border:0}
 .who{font-weight:600}.prob{color:var(--warn)}
 .md h2,.md h3{font-size:15px;margin:12px 0 4px}.md table{border-collapse:collapse}.md td,.md th{border:1px solid var(--line);padding:3px 6px}
@@ -32,7 +34,7 @@ mark{background:#5a3b10;color:inherit}
 </head>
 <body>
 <header><b>VoiceAi</b>
-<nav class="row"><button data-v="ask">Chiedi</button><button data-v="memo">Memo</button><button data-v="days">Giornate</button><button data-v="persons">Persone</button>
+<nav class="row"><button data-v="ask">Chiedi</button><button data-v="memo">Memo</button><button data-v="days">Giornate</button><button data-v="log">Cronologia</button><button data-v="persons">Persone</button>
 <button data-v="search">Cerca</button><button data-v="status">Stato</button></nav></header>
 <main id="m"></main>
 <script>
@@ -120,10 +122,19 @@ const views = {
       : `<div class="card mut">Nessuna registrazione ancora.</div>`;
     M.querySelectorAll("[data-day]").forEach(e => e.onclick = () => views.day(e.dataset.day));
   },
+  async log(day) {
+    day = day || new Date().toLocaleDateString("sv-SE");
+    const ev = await api(`/api/days/${day}/timeline`);
+    M.innerHTML = `<div class="card row"><b>Cronologia</b><input id="dd" type="date" value="${esc(day)}" style="margin-left:auto"></div>
+      <div class="card">${ev.map(e => `<div class="ev ${e.kind}" ${e.recording_id ? `data-rec="${e.recording_id}" style="cursor:pointer"` : ""}>
+        <span class="t">${esc(e.ora)}</span><span class="x">${esc(e.text)}</span></div>`).join("") || "<div class='mut'>Niente registrato in questo giorno.</div>"}</div>`;
+    document.getElementById("dd").onchange = e => views.log(e.target.value);
+    M.querySelectorAll("[data-rec]").forEach(e => e.onclick = () => views.rec(+e.dataset.rec, day));
+  },
   async day(day) {
     const d = await api("/api/days/" + day);
     M.innerHTML = `<div class="row" style="margin-bottom:10px"><button id="back">← Giornate</button><b>${esc(day)}</b>
-      <button id="rb" style="margin-left:auto">Rigenera riassunto</button></div>
+      <button id="lg" style="margin-left:auto">Cronologia</button><button id="rb">Rigenera riassunto</button></div>
       ${d.mood ? `<div class="card"><div class="mood">${MOODS[d.mood_score] || ""} ${esc(d.mood)}</div>
         <div class="mut">${esc(d.mood_reason)}</div>${d.tip ? `<div class="tip">💡 ${esc(d.tip)}</div>` : ""}</div>` : ""}
       ${d.summary ? `<div class="card md">${md(d.summary)}</div>` : `<div class="card mut">Riassunto non ancora pronto (parte dopo un'ora senza nuovi blocchi).</div>`}
@@ -132,6 +143,7 @@ const views = {
         <div>${kws(r.keywords).map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div>
         ${r.error ? `<div class="mut">${esc(r.error)}</div>` : ""}</div>`).join("")}`;
     document.getElementById("back").onclick = () => show("days");
+    document.getElementById("lg").onclick = () => views.log(day);
     document.getElementById("rb").onclick = async () => { await api(`/api/days/${day}/rebuild`, {method: "POST"}); alert("In coda: pronto tra qualche minuto."); };
     M.querySelectorAll("[data-rec]").forEach(e => e.onclick = () => views.rec(+e.dataset.rec, day));
   },

@@ -227,7 +227,9 @@ class ArchiveActivity : Activity() {
     }
 
     private fun showDay(day: String) {
-        val body = page(day)
+        val body = page(day) {
+            add(button("Cronologia") { startActivity(android.content.Intent(this@ArchiveActivity, TimelineActivity::class.java).putExtra("day", day)) })
+        }
         db.day(day)?.let { d ->
             if (d["mood"] != null) body.add(card().apply {
                 val mood = (d["mood_score"] as? Long)?.toInt()?.let { Ui.MOODS[it] } ?: ""
@@ -295,5 +297,52 @@ class SettingsActivity : Activity() {
         body.add(out)
         body.add(text("\nIl telefono deve avere Tailscale attivo. I blocchi vengono cancellati dal telefono solo dopo " +
             "che il PC ha confermato lo stesso SHA-256.", 12f, Ui.MUT))
+    }
+}
+
+/** Cronologia della giornata minuto per minuto ("08:23 Mattia parla con Marco"). Richiede il PC. */
+class TimelineActivity : Activity() {
+    private val io = Executors.newSingleThreadExecutor()
+    private val ui = Handler(Looper.getMainLooper())
+    private var day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        intent.getStringExtra("day")?.let { day = it }
+        render()
+    }
+
+    private fun pickDay() {
+        val c = Calendar.getInstance().apply { time = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day)!! }
+        DatePickerDialog(this, { _, y, m, d -> day = "%04d-%02d-%02d".format(y, m + 1, d); render() },
+            c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
+    }
+
+    private fun render() {
+        val body = page("Cronologia $day") { add(button("📅") { pickDay() }) }
+        val c = card().apply { add(text("Chiedo al PC…", 14f, Ui.MUT)) }
+        body.add(c)
+        io.execute {
+            val r = runCatching { Api(this).timeline(day).getJSONArray("items") }
+            ui.post {
+                c.removeAllViews()
+                r.onSuccess { a ->
+                    if (a.length() == 0) c.add(text("Niente registrato in questo giorno.", 14f, Ui.MUT))
+                    for (i in 0 until a.length()) {
+                        val e = a.getJSONObject(i)
+                        val color = when (e.optString("kind")) { "ai" -> Ui.ACC; "memo" -> Ui.OK; else -> Ui.FG }
+                        c.add(row().apply {
+                            setPadding(0, dp(5), 0, dp(5))
+                            add(text(e.optString("ora"), 13f, Ui.MUT).apply { minWidth = dp(92) })
+                            add(text(e.optString("text"), 14f, color), weight = 1f)
+                            if (e.has("recording_id")) setOnClickListener {
+                                startActivity(android.content.Intent(this@TimelineActivity, ArchiveActivity::class.java)
+                                    .putExtra("rec", e.getLong("recording_id")))
+                            }
+                        })
+                    }
+                }.onFailure { c.add(text("PC non raggiungibile (${it.message}).", 14f, Ui.WARN)) }
+            }
+        }
     }
 }

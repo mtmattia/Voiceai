@@ -65,6 +65,7 @@ class Api(ctx: Context) {
     fun status() = exec(req("/api/status").get().build())
     fun pull(since: Long, limit: Int = 2000) = exec(req("/api/sync/pull?since=$since&limit=$limit").get().build())
     fun push(data: JSONObject) = exec(req("/api/sync/push").post(data.toString().toRequestBody(json)).build())
+    fun timeline(day: String) = exec(req("/api/days/$day/timeline").get().build())
     fun ask(q: String) = exec(req("/api/ask").post(JSONObject().put("q", q).toString().toRequestBody(json)).build())
     fun merge(src: Long, into: Long) =
         exec(req("/api/persons/$src/merge").post(JSONObject().put("into", into).toString().toRequestBody(json)).build())

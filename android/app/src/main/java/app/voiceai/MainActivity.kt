@@ -60,6 +60,7 @@ class MainActivity : Activity() {
         top.add(button("Memo") { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 6)
         top.add(button("Persone") { open(PersonsActivity::class.java) }, weight = 1f, marginEnd = 6)
         top.add(button("Archivio") { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 6)
+        top.add(button("🕑") { open(TimelineActivity::class.java) }, marginEnd = 6)
         top.add(button("⚙") { open(SettingsActivity::class.java) })
         col.add(top)
         status = text("", 12f, Ui.MUT).apply { setPadding(0, dp(6), 0, 0) }

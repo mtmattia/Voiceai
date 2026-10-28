@@ -152,6 +152,14 @@ def create_app(cfg, db: DB, token: str, worker=None):
                                   FROM recordings WHERE day=? ORDER BY started_at""", (day,))
         return d
 
+    @app.get("/api/days/{day}/timeline", dependencies=A)
+    def day_timeline(day: str):
+        from . import timeline
+        try:
+            return timeline.build(db, day)
+        except ValueError:
+            raise HTTPException(400, "giorno non valido (AAAA-MM-GG)")
+
     @app.post("/api/days/{day}/rebuild", dependencies=A)
     def rebuild(day: str):
         db.q("UPDATE days SET dirty=1, last_activity=0 WHERE day=?", (day,))
@@ -195,6 +203,7 @@ def create_app(cfg, db: DB, token: str, worker=None):
         q = body.q.strip()[:500]
         if not q:
             raise HTTPException(400, "domanda vuota")
+        db.q("INSERT INTO asks(ts, question) VALUES(?,?)", (time.time(), q))
         try:
             return worker.ask(q) if worker else ask.answer(db, cfg, q)
         except Exception as e:
