@@ -15,7 +15,6 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -115,13 +114,6 @@ class MainActivity : Activity() {
         col.add(btnWrap)
         timer = text("Tocca per registrare", 15f, Ui.MUT).apply { gravity = Gravity.CENTER }
         col.add(timer)
-        val keep = CheckBox(this).apply {
-            text = "Schermo acceso in registrazione (diventa nero dopo ${prefs.blackAfterSec} s)"
-            setTextColor(0xB3FFFFFF.toInt()); textSize = 12f; isChecked = prefs.keepScreenOn
-            buttonTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            setOnCheckedChangeListener { _, v -> prefs.keepScreenOn = v; applyScreenFlag() }
-        }
-        col.add(keep)
         col.add(Space(this), weight = 0.6f)
         root.addView(col)
 
@@ -177,7 +169,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyScreenFlag() {
-        if (RecorderService.running && prefs.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (RecorderService.running) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
@@ -215,7 +207,7 @@ class MainActivity : Activity() {
                 val s = (System.currentTimeMillis() - RecorderService.startedAtMs) / 1000
                 timer.text = "● REC  %d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60)
                 timer.setTextColor(Color.WHITE)
-                if (prefs.keepScreenOn && System.currentTimeMillis() - lastTouch > prefs.blackAfterSec * 1000L) setBlack(true)
+                if (System.currentTimeMillis() - lastTouch > prefs.blackAfterSec * 1000L) setBlack(true)
             } else {
                 if (tickN % 3 == 0L) wave.idle()
                 timer.text = "Tocca per registrare"; timer.setTextColor(0xCCFFFFFF.toInt())
