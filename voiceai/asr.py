@@ -70,8 +70,16 @@ class Engine:
 
     def run(self, path, num_speakers=None):
         """-> dict(segments=[{start,end,text,speaker}], embeddings={spk: [..]}, talk={spk: sec}, duration)"""
-        import whisperx
         self.load()
+        try:
+            return self._run(path, num_speakers)
+        finally:
+            # la cache di PyTorch (allineamento, pyannote) altrimenti toglie a Whisper (CTranslate2)
+            # la VRAM che gli serve al blocco successivo: con large-v3 su 6 GB va in OOM
+            _free()
+
+    def _run(self, path, num_speakers):
+        import whisperx
         a, d = self.cfg["asr"], self.cfg["diarization"]
         audio = load_audio(path, af=a.get("audio_filter"))
         duration = len(audio) / SR
