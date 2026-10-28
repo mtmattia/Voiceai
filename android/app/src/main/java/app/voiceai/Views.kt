@@ -28,9 +28,8 @@ class WaveformView(ctx: Context) : View(ctx) {
     }
 
     fun idle() {
-        // a riposo: piccola onda "respiro"
-        val t = System.currentTimeMillis() / 400.0
-        push((300 + 250 * kotlin.math.sin(t)).toInt())
+        // a riposo: linea piatta (puntini), l'onda si muove solo con la voce in registrazione
+        push(0)
     }
 
     override fun onDraw(c: Canvas) {
