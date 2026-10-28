@@ -177,16 +177,51 @@ class PersonsActivity : Activity() {
                 val min = ((p["talk_sec"] as? Number)?.toDouble() ?: 0.0) / 60
                 val seen = (p["last_seen"] as? Double)?.let { " · ultima volta " + Ui.dm(it) } ?: ""
                 add(text("%.0f min di parlato%s".format(min, seen), 12f, Ui.MUT))
+                // due righe di pulsanti a larghezza piena: niente testo a capo né pulsanti fuori schermo
+                lateinit var play: android.widget.Button
+                add(row().apply {
+                    setPadding(0, dp(10), 0, 0)
+                    play = button("▶ Ascolta", primary = true) { listen(id, play) }
+                    add(play, weight = 1f, marginEnd = 8)
+                    add(button("Rinomina") { rename(id, p["name"] as String) }, weight = 1f)
+                })
                 add(row().apply {
                     setPadding(0, dp(8), 0, 0)
-                    add(button("Rinomina") { rename(id, p["name"] as String) }, marginEnd = 6)
-                    if (!confirmed) add(button("Conferma") { db.editPerson(id, confirmed = true); changed() }, marginEnd = 6)
-                    if (!owner) add(button("Sono io") { db.editPerson(id, owner = true); changed() }, marginEnd = 6)
-                    add(button("Unisci…") { merge(id, all) })
+                    if (!confirmed) add(button("Conferma") { db.editPerson(id, confirmed = true); changed() }, weight = 1f, marginEnd = 8)
+                    if (!owner) add(button("Sono io") { db.editPerson(id, owner = true); changed() }, weight = 1f, marginEnd = 8)
+                    add(button("Unisci…") { merge(id, all) }, weight = 1f)
                 })
             })
         }
     }
+
+    private var player: android.media.MediaPlayer? = null
+
+    /** Fa sentire la voce della persona (dal PC) per riconoscerla. */
+    private fun listen(id: Long, b: android.widget.Button) {
+        if (player != null) { stopVoice(); return }
+        b.text = "…"
+        io.execute {
+            val f = java.io.File(cacheDir, "voce_$id.ogg")
+            val r = runCatching { Api(this).voice(id, f) }
+            ui.post {
+                r.onSuccess {
+                    player = android.media.MediaPlayer().apply {
+                        setDataSource(f.path); prepare(); start()
+                        setOnCompletionListener { stopVoice(); b.text = "▶ Ascolta" }
+                    }
+                    b.text = "■ Stop"
+                }.onFailure {
+                    b.text = "▶ Ascolta"
+                    Toast.makeText(this, "Non riesco a farla sentire: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun stopVoice() { player?.release(); player = null; render() }
+
+    override fun onPause() { super.onPause(); player?.release(); player = null }
 
     private fun rename(id: Long, cur: String) {
         val e = input("Nome", cur.removeSuffix("?"), InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)

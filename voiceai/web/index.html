@@ -192,7 +192,7 @@ const views = {
         ${p.confirmed ? "" : `<span class="tag prob">da confermare</span>`}${p.is_owner ? `<span class="tag">⭐ io</span>` : ""}</div>
         <div class="mut">${Math.round(p.talk_sec / 60)} min di parlato · ${p.n_prints} impronte${p.last_seen ? " · ultima volta " + new Date(p.last_seen * 1000).toLocaleDateString("it-IT") : ""}
         ${p.name_votes.length ? " · indizi: " + p.name_votes.map(v => esc(v.name) + " (" + v.votes + ")").join(", ") : ""}</div>
-        <div class="row" style="margin-top:8px">${p.is_owner ? "" : `<button class="ow">Sono io</button>`}<button class="ex">Frasi</button>
+        <div class="row" style="margin-top:8px">${p.is_owner ? "" : `<button class="ow">Sono io</button>`}<button class="vo">▶ Ascolta</button><button class="ex">Frasi</button>
         <select class="mt"><option value="">Unisci a…</option>${opts}</select><button class="del" style="margin-left:auto">Elimina</button></div>
         <div class="xs"></div></div>`).join("");
     M.querySelectorAll("[data-p]").forEach(c => {
@@ -200,6 +200,12 @@ const views = {
       $(".sv").onclick = async () => { await api("/api/persons/" + id, {method: "PATCH", body: JSON.stringify({name: $(".nm").value})}); views.persons(); };
       $(".nm").onkeydown = e => { if (e.key === "Enter") $(".sv").click(); };
       if ($(".ow")) $(".ow").onclick = async () => { await api("/api/persons/" + id, {method: "PATCH", body: JSON.stringify({is_owner: true})}); views.persons(); };
+      $(".vo").onclick = async e => { const b = e.target; b.textContent = "…";
+        const r = await fetch(`/api/persons/${id}/voice`, {headers: {"Authorization": "Bearer " + TOK}});
+        if (!r.ok) { b.textContent = "▶ Ascolta"; return alert("Nessuna frase abbastanza lunga da far sentire."); }
+        const a = new Audio(URL.createObjectURL(await r.blob())); b.textContent = "■ Stop";
+        a.onended = () => b.textContent = "▶ Ascolta"; b.onclick = () => { a.pause(); b.textContent = "▶ Ascolta"; b.onclick = null; views.persons(); };
+        a.play(); };
       $(".ex").onclick = async () => { const us = await api(`/api/persons/${id}/utterances?limit=15`);
         $(".xs").innerHTML = us.map(u => `<div class="utt"><span class="mut">${new Date(u.ts * 1000).toLocaleString("it-IT")}</span> ${esc(u.text)}</div>`).join("") || "<span class='mut'>Nessuna frase.</span>"; };
       $(".mt").onchange = async e => { const to = +e.target.value; if (!to || to === id) return;

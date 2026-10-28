@@ -66,6 +66,16 @@ class Api(ctx: Context) {
     fun pair(code: String) = exec(Request.Builder().url("$base/api/pair")
         .post(JSONObject().put("code", code).toString().toRequestBody(json)).build()).getString("token")
 
+    /** Qualche secondo della voce di una persona (Ogg/Opus) salvato in [dest]. */
+    fun voice(pid: Long, dest: File) {
+        if (base.isEmpty()) throw IOException("server non configurato")
+        http.newCall(req("/api/persons/$pid/voice").get().build()).execute().use { r ->
+            if (r.code == 404) throw HttpError(404, "nessuna frase abbastanza lunga da far sentire")
+            if (!r.isSuccessful) throw HttpError(r.code, "HTTP ${r.code}")
+            dest.outputStream().use { o -> r.body!!.byteStream().copyTo(o) }
+        }
+    }
+
     fun status() = exec(req("/api/status").get().build())
     fun pull(since: Long, limit: Int = 2000) = exec(req("/api/sync/pull?since=$since&limit=$limit").get().build())
     fun push(data: JSONObject) = exec(req("/api/sync/push").post(data.toString().toRequestBody(json)).build())

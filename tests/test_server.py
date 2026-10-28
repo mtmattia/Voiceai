@@ -380,3 +380,18 @@ def test_pull_chiave_riusata(tmp_path):
     assert db.new_person("Secondo") == pid           # SQLite ricicla l'id
     out = db.pull(0)
     assert [p["name"] for p in out["persons"]] == ["Secondo"] and out["deleted"] == []
+
+
+def test_voce_persona(env, tmp_path):
+    import subprocess
+    cfg, db, w, c = env
+    wav = tmp_path / "a.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=220:d=20", str(wav)], check=True)
+    pid = db.new_person("Marco")
+    with db.tx() as x:
+        x.execute("INSERT INTO recordings(id, sha256, started_at, day, path, status) VALUES(1,'x',0,'2026-10-28',?,'done')", (str(wav),))
+        x.executemany("INSERT INTO utterances(recording_id, ts, start, end, person_id, text) VALUES(1,?,?,?,?,'ciao')",
+                      [(0, 1, 5, pid), (0, 8, 9, pid)])                     # la seconda è troppo corta
+    r = c.get(f"/api/persons/{pid}/voice", headers=H)
+    assert r.status_code == 200 and r.headers["content-type"] == "audio/ogg" and r.content[:4] == b"OggS"
+    assert c.get(f"/api/persons/{db.new_person('Muto')}/voice", headers=H).status_code == 404

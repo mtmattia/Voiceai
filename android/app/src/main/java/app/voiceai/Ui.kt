@@ -66,7 +66,7 @@ object Ui {
     }
 
     fun Context.button(s: String, primary: Boolean = false, onClick: () -> Unit) = Button(this).apply {
-        text = s; isAllCaps = false; textSize = 14f; stateListAnimator = null
+        text = s; isAllCaps = false; textSize = 14f; stateListAnimator = null; isSingleLine = true
         // primario: vetro pieno (bianco) con testo scuro, come un "filled button" Material
         setTextColor(if (primary) 0xFF101418.toInt() else FG)
         if (primary) setTypeface(typeface, Typeface.BOLD)

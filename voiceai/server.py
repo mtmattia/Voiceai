@@ -137,6 +137,41 @@ def create_app(cfg, db: DB, token: str, worker=None):
     def persons():
         return db.persons()
 
+    @app.get("/api/persons/{pid}/voice", dependencies=A)
+    def person_voice(pid: int, seconds: float = 12):
+        """Qualche secondo della voce di una persona (le sue frasi più lunghe, da registrazioni diverse) per
+        riconoscerla a orecchio. -> audio Ogg/Opus."""
+        import subprocess
+        import tempfile
+        utt = db.q("""SELECT u.start, u.end, r.path FROM utterances u JOIN recordings r ON r.id=u.recording_id
+                      WHERE u.person_id=? AND u.end - u.start >= 2 ORDER BY u.end - u.start DESC LIMIT 12""", (pid,))
+        pick, total = [], 0.0
+        for u in utt:
+            if total >= min(max(seconds, 3), 30) or not Path(u["path"]).exists():
+                continue
+            d = min(u["end"] - u["start"], 6.0)
+            pick.append((u["path"], u["start"], d))
+            total += d
+        if not pick:
+            raise HTTPException(404, "nessuna frase abbastanza lunga per questa persona")
+        cmd = ["ffmpeg", "-nostdin", "-v", "error"]
+        for path, start, d in pick:
+            cmd += ["-ss", f"{start:.2f}", "-t", f"{d:.2f}", "-i", path]
+        # pezzi uniti con mezzo secondo di silenzio, volume normalizzato
+        parts = "".join(f"[{i}:a]aresample=48000,apad=pad_dur=0.5[a{i}];" for i in range(len(pick)))
+        parts += "".join(f"[a{i}]" for i in range(len(pick))) + f"concat=n={len(pick)}:v=0:a=1,dynaudnorm[out]"
+        out = Path(tempfile.mkstemp(suffix=".ogg")[1])
+        try:
+            subprocess.run(cmd + ["-filter_complex", parts, "-map", "[out]", "-ac", "1", "-c:a", "libopus",
+                                  "-b:a", "32k", "-y", str(out)], check=True, capture_output=True, timeout=60)
+            data = out.read_bytes()
+        except subprocess.SubprocessError as e:
+            raise HTTPException(500, f"ffmpeg: {e}")
+        finally:
+            out.unlink(missing_ok=True)
+        from fastapi.responses import Response
+        return Response(data, media_type="audio/ogg")
+
     @app.patch("/api/persons/{pid}", dependencies=A)
     def patch_person(pid: int, p: PersonPatch):
         if not db.one("SELECT id FROM persons WHERE id=?", (pid,)):
