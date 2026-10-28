@@ -57,3 +57,19 @@ def apply_name_hints(db, votes, local_to_pid, cfg):
         top, total = vs[0], sum(v["votes"] for v in vs)
         if top["votes"] >= min_votes and top["votes"] >= 0.6 * total and top["name"] not in taken:
             db.update_person(r["id"], name=f"{top['name']}?")   # "?" = probabile, da confermare
+
+
+def enroll_owner(db, emb, cfg, name=None, source="voce registrata"):
+    """"Riconosci la mia voce": la clip dell'utente diventa la persona "io". Se la voce è già nell'archivio
+    (una persona esistente sopra soglia) si usa quella, così le frasi passate restano collegate. -> (pid, somiglianza)"""
+    prints = db.prints()
+    best, v = None, 0.0
+    if prints:
+        d = similarity({"me": emb}, prints)["me"]
+        if d:
+            best, v = max(d.items(), key=lambda x: x[1])
+    pid = best if best is not None and v >= cfg["people"]["threshold"] else db.new_person(name or "Io", confirmed=True)
+    db.q("UPDATE persons SET is_owner=0 WHERE is_owner=1 AND id<>?", (pid,))
+    db.update_person(pid, is_owner=1, confirmed=1, **({"name": name} if name else {}))
+    db.add_print(pid, emb, source, manual=True)
+    return pid, v

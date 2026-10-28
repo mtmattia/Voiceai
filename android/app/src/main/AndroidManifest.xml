@@ -31,6 +31,8 @@
         <activity android:name=".ArchiveActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".TimelineActivity" android:exported="false" />
+        <activity android:name=".VoiceActivity" android:exported="false" />
+        <activity android:name=".ReportActivity" android:exported="false" />
 
         <service
             android:name=".RecorderService"

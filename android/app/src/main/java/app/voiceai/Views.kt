@@ -115,7 +115,8 @@ class TimelineDot(ctx: Context, private val color: Int, private val first: Boole
         p.color = Color.argb(70, 255, 255, 255); p.strokeWidth = resources.displayMetrics.density * 1.5f
         c.drawLine(cx, if (first) cy else 0f, cx, if (last) cy else height.toFloat(), p)
         val r = resources.displayMetrics.density * 5
-        p.color = Ui.BG; c.drawCircle(cx, cy, r + resources.displayMetrics.density * 3, p)   // stacco dalla linea
         p.color = color; c.drawCircle(cx, cy, r, p)
+        p.style = Paint.Style.STROKE; p.color = Color.WHITE; p.strokeWidth = resources.displayMetrics.density * 1.5f
+        c.drawCircle(cx, cy, r, p); p.style = Paint.Style.FILL
     }
 }

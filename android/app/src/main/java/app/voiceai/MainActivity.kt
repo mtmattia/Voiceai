@@ -75,12 +75,12 @@ class MainActivity : Activity() {
         col.add(head)
 
         val nav = row().apply { setPadding(0, dp(14), 0, 0) }
+        nav.add(tile(R.drawable.ms_event_note, "Resoconto", 0xFFB07CF0.toInt()) { open(ReportActivity::class.java) }, weight = 1f, marginEnd = 8)
         nav.add(tile(R.drawable.ms_checklist, "Da fare", 0xFFE5B454.toInt()) { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 8)
         nav.add(tile(R.drawable.ms_calendar_month, "Agenda", 0xFF4CC38A.toInt()) {
             startActivity(Intent(this, MemoActivity::class.java).putExtra("kind", "agenda"))
         }, weight = 1f, marginEnd = 8)
-        nav.add(tile(R.drawable.ms_folder_open, "Archivio", 0xFF5B8DEF.toInt()) { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 8)
-        nav.add(tile(R.drawable.ms_history, "Cronologia", 0xFFB07CF0.toInt()) { open(TimelineActivity::class.java) }, weight = 1f)
+        nav.add(tile(R.drawable.ms_folder_open, "Archivio", 0xFF5B8DEF.toInt()) { open(ArchiveActivity::class.java) }, weight = 1f)
         col.add(nav)
 
         // ricerca: funziona anche durante la registrazione (il servizio è indipendente dalla schermata)
@@ -222,8 +222,8 @@ class MainActivity : Activity() {
     }
 
     // sfondo: verde a riposo, rosso in registrazione (dissolvenza)
-    private val IDLE = intArrayOf(0xFF06231A.toInt(), 0xFF0C4A35.toInt(), 0xFF12805A.toInt())
-    private val REC = intArrayOf(0xFF2A060C.toInt(), 0xFF6E1222.toInt(), 0xFFC4263F.toInt())
+    private val IDLE = Ui.IDLE
+    private val REC = Ui.REC
     private val bgDrawable = android.graphics.drawable.GradientDrawable(
         android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, IDLE.clone())
 
@@ -291,7 +291,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun utt(h: Map<String, Any?>) = text("${h["day"] ?: ""} ${Ui.hm(h["ts"] as Double)}  ${h["speaker"]}: ${h["text"]}", 14f).apply {
+    private fun utt(h: Map<String, Any?>) = text(LocalDb.get(this).let { db ->
+        Ui.line("${h["day"] ?: ""} ${Ui.hm(h["ts"] as Double)}  ", h["speaker"].toString(), h["text"].toString(), db.personNames(), db.ownerName())
+    }, 14f).apply {
         setPadding(0, dp(6), 0, dp(6))
         setOnClickListener { openRec(h["recording_id"] as Long, h["id"] as Long) }
     }

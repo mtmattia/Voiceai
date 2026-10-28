@@ -76,6 +76,14 @@ class Api(ctx: Context) {
         }
     }
 
+    /** "Riconosci la mia voce": clip dell'utente -> persona "io" sul PC. */
+    fun myVoice(f: File, name: String): JSONObject {
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", f.name, f.asRequestBody("audio/ogg".toMediaType()))
+            .addFormDataPart("name", name).build()
+        return exec(req("/api/me/voice").post(body).build())
+    }
+
     fun status() = exec(req("/api/status").get().build())
     fun pull(since: Long, limit: Int = 2000) = exec(req("/api/sync/pull?since=$since&limit=$limit").get().build())
     fun push(data: JSONObject) = exec(req("/api/sync/push").post(data.toString().toRequestBody(json)).build())

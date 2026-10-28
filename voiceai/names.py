@@ -92,7 +92,7 @@ def llm_votes(cfg, trns, unknown, label, votes=None):
                   "Per ciascuna, se dal testo risulta chiaramente il nome (si presenta, viene chiamata "
                   "per nome e risponde, viene ringraziata per nome dopo aver parlato), indicalo. "
                   "Ometti le etichette incerte.\n"
-                  'Formato: {"SPEAKER_01": "Marco"}\n\nTRASCRIZIONE:\n' + blk)
+                  'Formato: {"ETICHETTA": "nome come detto nel testo"}\n\nTRASCRIZIONE:\n' + blk)
         try:
             data = json.loads(llm.chat(cfg, SYS, prompt, json_mode=True))
         except Exception as e:  # LLM giù o JSON rotto: il fallback è opzionale

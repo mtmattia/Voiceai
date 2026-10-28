@@ -14,7 +14,9 @@ KW = """Dalla trascrizione estrai un titolo breve (max 8 parole) e 3-8 parole ch
 Poi, per ogni interlocutore{escluso} che parla abbastanza da capirlo, come sembrava sentirsi: "sensazione" in
 una o due parole (es. tranquillo, preoccupato, irritato, entusiasta, stanco, di fretta) e "perche" in una frase
 breve basata solo su ciò che dice. Se non si capisce, non includerlo. Usa i nomi come compaiono nel testo.
-Formato: {{"titolo": "...", "parole_chiave": ["...", "..."],
+Infine "sintesi": 1-2 frasi su cosa succede: di cosa si parla, chi c'è, in che contesto (lavoro in laboratorio,
+telefonata, cliente al banco, pausa...) se si capisce. Concreta, senza giudizi.
+Formato: {{"titolo": "...", "parole_chiave": ["...", "..."], "sintesi": "...",
 "sensazioni": [{{"persona": "...", "sensazione": "...", "perche": "..."}}]}}
 
 TRASCRIZIONE:
@@ -59,9 +61,47 @@ def recording_keywords(db, cfg, rid):
             and not str(f["persona"]).startswith("SPEAKER_")
             and not (owner and f.get("persona") == owner["name"])]
     with db.tx() as c:
-        c.execute("UPDATE recordings SET title=?, keywords=?, feelings=? WHERE id=?",
+        c.execute("UPDATE recordings SET title=?, keywords=?, feelings=?, summary=? WHERE id=?",
                   (str(d.get("titolo", ""))[:120], json.dumps(kws, ensure_ascii=False),
-                   json.dumps(feel, ensure_ascii=False), rid))
+                   json.dumps(feel, ensure_ascii=False), str(d.get("sintesi") or "")[:600], rid))
+
+
+SITUATIONS = """Questi sono i blocchi registrati nella giornata di {owner}, in ordine: orario, titolo, persone, sintesi.
+Raggruppa i blocchi consecutivi che fanno parte della stessa situazione (stessa attività, stesse persone, stesso
+argomento) e scrivi il resoconto della giornata come elenco di situazioni.
+Per ciascuna: "dalle" e "alle" (HH:MM, dai blocchi), "titolo" (max 6 parole), "persone" (nomi come nel testo,
+senza {owner}), "contesto" (dove/che tipo di situazione, 2-5 parole), "sintesi" (2-3 frasi concrete: cosa è
+successo, cosa si è deciso o chiesto, cosa resta aperto). Usa SOLO le informazioni dei blocchi.
+Formato: {{"situazioni": [{{"dalle": "09:27", "alle": "10:15", "titolo": "...", "persone": ["..."],
+"contesto": "...", "sintesi": "..."}}]}}
+
+BLOCCHI:
+{body}"""
+
+
+def build_situations(db, cfg, day):
+    """Resoconto per situazioni: blocchi consecutivi raggruppati dall'LLM (usa le sintesi per blocco, è leggero)."""
+    recs = db.q("""SELECT r.id, r.started_at, r.duration, r.title, r.summary,
+                   (SELECT GROUP_CONCAT(DISTINCT p.name) FROM utterances u JOIN persons p ON p.id=u.person_id
+                    WHERE u.recording_id=r.id AND p.is_owner=0) AS who
+                   FROM recordings r WHERE r.day=? AND r.status='done' AND r.keywords IS NOT NULL
+                   ORDER BY r.started_at""", (day,))
+    owner = db.owner()
+    lines = [f"{time.strftime('%H:%M', time.localtime(r['started_at']))}-"
+             f"{time.strftime('%H:%M', time.localtime(r['started_at'] + (r['duration'] or 0)))} | {r['title'] or ''} | "
+             f"{r['who'] or '-'} | {r['summary'] or ''}" for r in recs]
+    sits = []
+    if lines:
+        d = _json(cfg, SITUATIONS.format(owner=owner["name"] if owner else "l'utente",
+                                         body="\n".join(lines)[: cfg["llm"]["block_max_chars"]]))
+        for x in d.get("situazioni", []) if isinstance(d.get("situazioni"), list) else []:
+            if isinstance(x, dict) and str(x.get("titolo", "")).strip():
+                sits.append({k: (x.get(k) if k == "persone" and isinstance(x.get(k), list) else str(x.get(k) or "")[:600])
+                             for k in ("dalle", "alle", "titolo", "persone", "contesto", "sintesi")})
+                sits[-1]["persone"] = [str(p)[:60] for p in sits[-1]["persone"] or []][:8]
+    db.q("UPDATE days SET situations=?, situations_n=? WHERE day=?",
+         (json.dumps(sits, ensure_ascii=False), len(recs), day))
+    log.info("giornata %s: %d situazioni da %d blocchi", day, len(sits), len(recs))
 
 
 def _sample(lines, max_chars):

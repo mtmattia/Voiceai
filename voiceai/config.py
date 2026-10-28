@@ -27,7 +27,7 @@ DEFAULTS = {
     "storage": {"data_dir": "~/.local/share/voiceai", "keep_audio": True},
     "people": {"threshold": 0.50, "oversplit_margin": 0.10, "update_margin": 0.10, "min_update_sec": 15,
                "min_new_person_sec": 10, "max_prints": 20, "min_name_votes": 3},
-    "worker": {"poll_seconds": 10, "llm_after_idle_sec": 120, "day_idle_minutes": 60},
+    "worker": {"poll_seconds": 10, "llm_after_idle_sec": 120, "day_idle_minutes": 60, "situations_idle_minutes": 10},
     "watch": {"poll_seconds": 30, "stable_seconds": 120,
               "extensions": [".m4a", ".mp3", ".wav", ".ogg", ".opus", ".flac", ".aac",
                              ".mp4", ".webm", ".amr", ".3gp"]},

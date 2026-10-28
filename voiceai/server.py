@@ -137,6 +137,23 @@ def create_app(cfg, db: DB, token: str, worker=None):
     def persons():
         return db.persons()
 
+    @app.post("/api/me/voice", dependencies=A)
+    def my_voice(file: UploadFile = File(...), name: str = Form("")):
+        """"Riconosci la mia voce": clip di 20-30 s letta dall'utente -> persona "io" con impronta manuale."""
+        if not worker:
+            raise HTTPException(503, "server senza elaborazione")
+        tmp = incoming / f"{uuid.uuid4().hex}{Path(file.filename or '').suffix or '.ogg'}"
+        with open(tmp, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        try:
+            pid, sim = worker.enroll(str(tmp), name.strip()[:80] or None)
+        except SystemExit as e:   # embed_clip: nessuna voce nella clip
+            raise HTTPException(422, str(e))
+        finally:
+            tmp.unlink(missing_ok=True)
+        p = db.one("SELECT id, name FROM persons WHERE id=?", (pid,))
+        return {"id": pid, "name": p["name"], "gia_presente": sim >= cfg["people"]["threshold"], "somiglianza": round(sim, 2)}
+
     @app.get("/api/persons/{pid}/voice", dependencies=A)
     def person_voice(pid: int, seconds: float = 12):
         """Qualche secondo della voce di una persona (le sue frasi più lunghe, da registrazioni diverse) per

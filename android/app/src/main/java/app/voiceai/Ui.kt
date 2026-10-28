@@ -25,7 +25,42 @@ object Ui {
     const val CARD = 0xFF181B22.toInt()
     const val LINE = 0xFF262A33.toInt()
     const val FG = 0xFFE8E9EC.toInt()
-    const val MUT = 0xFF9AA0AB.toInt()
+    const val MUT = 0xFFB3C2BB.toInt()
+    const val NAME = 0xFFFFD27A.toInt()          // nomi delle persone: sempre in grassetto e di questo colore
+    val IDLE = intArrayOf(0xFF06231A.toInt(), 0xFF0C4A35.toInt(), 0xFF12805A.toInt())   // verde della schermata principale
+    val REC = intArrayOf(0xFF2A060C.toInt(), 0xFF6E1222.toInt(), 0xFFC4263F.toInt())
+
+    fun greenBg() = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, IDLE.clone())
+
+    /** Evidenzia i nomi (grassetto, colore) dentro un testo. */
+    fun names(s: CharSequence, names: Collection<String>): CharSequence {
+        val out = android.text.SpannableStringBuilder(s)
+        for (n in names.map { it.removeSuffix("?").trim() }.filter { it.length >= 2 }.distinct()) {
+            Regex("(?<![\\p{L}])" + Regex.escape(n) + "\\??(?![\\p{L}])", RegexOption.IGNORE_CASE).findAll(s).forEach { m ->
+                out.setSpan(android.text.style.StyleSpan(Typeface.BOLD), m.range.first, m.range.last + 1, 0)
+                out.setSpan(android.text.style.ForegroundColorSpan(NAME), m.range.first, m.range.last + 1, 0)
+            }
+        }
+        return out
+    }
+
+    /** "Nome: testo" con il nome evidenziato; se la frase è rivolta all'utente (lo chiama per nome) tutta in risalto. */
+    fun line(prefix: String, speaker: String, body: String, allNames: Collection<String>, owner: String?): CharSequence {
+        val out = android.text.SpannableStringBuilder(prefix)
+        val a = out.length
+        out.append(speaker)
+        out.setSpan(android.text.style.StyleSpan(Typeface.BOLD), a, out.length, 0)
+        out.setSpan(android.text.style.ForegroundColorSpan(NAME), a, out.length, 0)
+        out.append(": ")
+        val b = out.length
+        out.append(names(body, allNames))
+        if (owner != null && speaker.removeSuffix("?") != owner && Regex("(?<![\\p{L}])" + Regex.escape(owner) + "(?![\\p{L}])",
+                RegexOption.IGNORE_CASE).containsMatchIn(body)) {
+            out.setSpan(android.text.style.StyleSpan(Typeface.BOLD), b, out.length, 0)
+            out.setSpan(android.text.style.BackgroundColorSpan(0x44FF4D5A), b, out.length, 0)
+        }
+        return out
+    }
     const val ACC = 0xFFFF4D5A.toInt()
     const val OK = 0xFF4CC38A.toInt()
     const val WARN = 0xFFE5B454.toInt()
@@ -123,7 +158,7 @@ object Ui {
     fun Context.input(hint: String, value: String = "", type: Int = InputType.TYPE_CLASS_TEXT) = EditText(this).apply {
         this.hint = hint; setText(value); inputType = type; textSize = 15f
         setTextColor(FG); setHintTextColor(MUT); isSingleLine = true
-        background = bg(0xFF0B0D11.toInt(), 20f, LINE); setPadding(dp(12), dp(10), dp(12), dp(10))
+        background = bg(0x33000000, dp(20).toFloat(), 0x33FFFFFF); setPadding(dp(14), dp(10), dp(14), dp(10))
     }
 
     fun Context.column(pad: Int = 16) = LinearLayout(this).apply {
@@ -135,7 +170,8 @@ object Ui {
     }
 
     fun Context.card() = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL; background = bg(CARD, 28f, LINE)
+        orientation = LinearLayout.VERTICAL
+        background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(0x40000000); setStroke(2, 0x26FFFFFF) }
         setPadding(dp(14), dp(12), dp(14), dp(12))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { bottomMargin = dp(10) }
@@ -162,7 +198,7 @@ object Ui {
 
     /** Pagina scorrevole standard: titolo + contenuto. Ritorna il contenitore del contenuto. */
     fun Activity.page(title: String, header: LinearLayout.() -> Unit = {}): LinearLayout {
-        val root = column(0).apply { setBackgroundColor(BG); insetSafe() }
+        val root = column(0).apply { background = greenBg(); insetSafe() }
         val top = row().apply { setPadding(dp(16), dp(12), dp(16), dp(8)) }
         top.add(iconButton(R.drawable.ms_arrow_back) { finish() }, marginEnd = 10)
         top.add(text(title, 19f, bold = true), weight = 1f)

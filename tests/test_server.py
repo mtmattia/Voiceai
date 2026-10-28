@@ -38,7 +38,7 @@ def env(tmp_path, monkeypatch):
     cfg = config.load("/nonexistent")
     cfg["storage"]["data_dir"] = tmp_path
     cfg["speakers"]["known_names"] = ["Marco", "Giulia"]
-    cfg["worker"].update(llm_after_idle_sec=0, day_idle_minutes=0)
+    cfg["worker"].update(llm_after_idle_sec=0, day_idle_minutes=0, situations_idle_minutes=0)
     db = DB(tmp_path / "v.db")
     w = worker.Worker(cfg, db, FakeEngine())
     monkeypatch.setattr(worker.llm, "unload_all", lambda c: None)
@@ -116,9 +116,14 @@ def test_full_flow(env, monkeypatch):
         if "parole chiave" in user:
             assert "escluso Mattia" in user
             return json.dumps({"titolo": "Fornitore in ritardo", "parole_chiave": ["fornitore", "preventivo"],
+                               "sintesi": "Ritardo della consegna.",
                                "sensazioni": [{"persona": "Marco", "sensazione": "tranquillo", "perche": "risponde sereno"},
                                               {"persona": "Mattia", "sensazione": "stanco", "perche": "lo dice"},
                                               {"persona": "Pippo", "sensazione": "felice", "perche": "inventato"}]})
+        if "Raggruppa i blocchi" in user:
+            assert "Fornitore in ritardo" in user and "Ritardo della consegna" in user
+            return json.dumps({"situazioni": [{"dalle": "09:00", "alle": "09:05", "titolo": "Fornitore",
+                                               "persone": ["Marco"], "contesto": "telefonata", "sintesi": "Consegna slitta."}]})
         if "stato d'animo" in user:
             assert "Mattia" in user and "stanco" in user and "consegna slitta" not in user.split("FRASI DI")[1]
             return '{"umore": "affaticato", "punteggio": -1, "motivazione": "dice di essere stanco", "suggerimento": "Fai una pausa."}'
@@ -130,6 +135,8 @@ def test_full_flow(env, monkeypatch):
     d = c.get("/api/days/2026-10-28", headers=H).json()
     assert d["mood"] == "affaticato" and d["mood_score"] == -1 and d["tip"] == "Fai una pausa."
     assert "fornitore" in json.loads(d["keywords"]) and d["recordings"][0]["title"] == "Fornitore in ritardo"
+    sits = json.loads(d["situations"])
+    assert sits[0]["titolo"] == "Fornitore" and sits[0]["persone"] == ["Marco"]
     # sensazioni: solo interlocutori presenti nel testo, mai l'utente stesso
     assert json.loads(d["recordings"][0]["feelings"]) == [{"persona": "Marco", "sensazione": "tranquillo", "perche": "risponde sereno"}]
     assert c.get("/api/search", headers=H, params={"q": "preventivo"}).json()["registrazioni"]
@@ -187,7 +194,9 @@ def test_memo_extract_explicit_guess_and_learn(env, monkeypatch):
     reply = {"todo": [{"titolo": "Stampare i documenti", "descrizione": "Per Marco, due copie.", "quando": "2026-10-28T12:00", "momento": None},
                       {"titolo": "Prendere il gatto", "quando": None, "momento": "sera"},
                       {"titolo": "Stampare i documenti", "quando": None, "momento": None},   # doppione
-                      {"titolo": "", "quando": None}, "spazzatura"],
+                      {"titolo": "", "quando": None}, "spazzatura",
+                      {"titolo": "Riunione con il fornitore", "quando": "2026-10-29T10:00"},    # incontro: va in agenda
+                      {"titolo": "Cena da mamma", "quando": None}],                              # doppione dell'agenda
              "agenda": [{"titolo": "Cena da mamma", "descrizione": "Porta il vino.", "quando": "2026-10-28T20:00"},
                         {"titolo": "Chiamare il fornitore", "quando": None}]}            # senza data: diventa todo
     # llm è un unico modulo: una sola funzione finta che risponde in base al prompt
@@ -198,7 +207,8 @@ def test_memo_extract_explicit_guess_and_learn(env, monkeypatch):
     assert set(ms) == {"Stampare i documenti", "Prendere il gatto", "Chiamare il fornitore"}
     assert ms["Stampare i documenti"]["descr"] == "Per Marco, due copie."
     ag = c.get("/api/memos?kind=agenda", headers=H).json()
-    assert [(a["text"], a["descr"], time.localtime(a["due_ts"]).tm_hour) for a in ag] == [("Cena da mamma", "Porta il vino.", 20)]
+    assert [(a["text"], a["descr"], time.localtime(a["due_ts"]).tm_hour) for a in ag] == [
+        ("Cena da mamma", "Porta il vino.", 20), ("Riunione con il fornitore", "", 10)]
     assert ms["Stampare i documenti"]["due_kind"] == "esplicita"
     assert time.localtime(ms["Stampare i documenti"]["due_ts"]).tm_hour == 12
     g = ms["Prendere il gatto"]
@@ -395,3 +405,17 @@ def test_voce_persona(env, tmp_path):
     r = c.get(f"/api/persons/{pid}/voice", headers=H)
     assert r.status_code == 200 and r.headers["content-type"] == "audio/ogg" and r.content[:4] == b"OggS"
     assert c.get(f"/api/persons/{db.new_person('Muto')}/voice", headers=H).status_code == 404
+
+
+def test_riconosci_la_mia_voce(env, monkeypatch):
+    from voiceai import asr
+    cfg, db, w, c = env
+    up(c, BLOCK1, 0, time.time())
+    assert w.step()
+    me = db.q("SELECT person_id FROM utterances ORDER BY ts")[0]["person_id"]
+    monkeypatch.setattr(asr, "embed_clip", lambda *a, **k: noisy(VOICE["io"]))
+    r = c.post("/api/me/voice", headers=H, files={"file": ("io.ogg", b"x")}, data={"name": "Mattia"}).json()
+    assert r["id"] == me and r["gia_presente"] and r["name"] == "Mattia"   # la voce era già nell'archivio
+    p = db.one("SELECT * FROM persons WHERE id=?", (me,))
+    assert p["is_owner"] == 1 and p["confirmed"] == 1
+    assert db.one("SELECT COUNT(*) n FROM prints WHERE person_id=? AND manual=1", (me,))["n"] == 1

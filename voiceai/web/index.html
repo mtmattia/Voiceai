@@ -31,7 +31,7 @@ input.grow{flex:1}
 .ev{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}
 .ev .t{color:var(--mut);font-variant-numeric:tabular-nums;min-width:96px}.ev.ai .x{color:var(--acc)}.ev.memo .x{color:var(--ok)}
 .utt{padding:4px 0;border-bottom:1px solid var(--line)}.utt:last-child{border:0}
-.who{font-weight:600}.prob{color:var(--warn)}
+.who{font-weight:700;color:#ffd27a}.prob{color:var(--warn)}
 .md h2,.md h3{font-size:15px;margin:12px 0 4px}.md table{border-collapse:collapse}.md td,.md th{border:1px solid var(--line);padding:3px 6px}
 mark{background:#5a3b10;color:inherit}
 </style>
@@ -155,6 +155,10 @@ const views = {
       <button id="lg" style="margin-left:auto">Cronologia</button><button id="rb">Rigenera riassunto</button></div>
       ${d.mood ? `<div class="card"><div class="mood">${MOODS[d.mood_score] || ""} ${esc(d.mood)}</div>
         <div class="mut">${esc(d.mood_reason)}</div>${d.tip ? `<div class="tip">💡 ${esc(d.tip)}</div>` : ""}</div>` : ""}
+      ${(() => { let st = []; try { st = JSON.parse(d.situations || "[]"); } catch (e) {}
+        return st.length ? `<div class="card"><b>Resoconto</b>${st.map(x => `<div class="utt"><span class="mut">${esc(x.dalle)}–${esc(x.alle)}</span>
+          <b>${esc(x.titolo)}</b> <span class="tag">${esc(x.contesto)}</span>${(x.persone || []).length ? ` <span class="who" style="color:#ffd27a">con ${esc(x.persone.join(", "))}</span>` : ""}
+          <div>${esc(x.sintesi)}</div></div>`).join("")}</div>` : ""; })()}
       ${d.summary ? `<div class="card md">${md(d.summary)}</div>` : `<div class="card mut">Riassunto non ancora pronto (parte dopo un'ora senza nuovi blocchi).</div>`}
       ${d.recordings.map(r => `<div class="card" data-rec="${r.id}" style="cursor:pointer"><div class="row"><b>${hm(r.started_at)}</b>
         <span>${esc(r.title || "")}</span><span class="mut" style="margin-left:auto">${r.status}${r.duration ? " · " + Math.round(r.duration / 60) + " min" : ""}</span></div>

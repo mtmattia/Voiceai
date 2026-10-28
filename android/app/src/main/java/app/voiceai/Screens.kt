@@ -19,6 +19,7 @@ import app.voiceai.Ui.button
 import app.voiceai.Ui.card
 import app.voiceai.Ui.column
 import app.voiceai.Ui.dp
+import app.voiceai.Ui.icon
 import app.voiceai.Ui.iconButton
 import app.voiceai.Ui.setIcon
 import app.voiceai.Ui.input
@@ -58,79 +59,94 @@ class MemoActivity : Activity() {
 
     private fun render() {
         body.removeAllViews()
-        val form = card()
-        val t = input(if (agenda) "Nuovo appuntamento… (es. cena da mamma)" else "Nuova cosa da fare… (es. prendere il gatto)")
-        val dsc = input("Descrizione (facoltativa)")
-        form.add(t)
-        form.add(dsc.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8) })
-        val btns = row().apply { setPadding(0, dp(10), 0, 0) }
-        fun save(ts: Double?) { if (t.text.isNotBlank()) { db.addMemo(t.text.toString(), ts, dsc.text.toString(), kind); changed() } }
-        btns.add(button(if (agenda) "Data e ora" else "Con orario", iconRes = R.drawable.ms_schedule) { pickDue { ts -> save(ts) } }, marginEnd = 8)
-        if (!agenda) btns.add(button("Aggiungi", primary = true) { save(null) })
-        form.add(btns)
-        body.add(form)
+        // aggiunta veloce: una riga, il resto lo compila l'app dalle registrazioni
+        val t = input(if (agenda) "Aggiungi un appuntamento…" else "Aggiungi una cosa da fare…")
+        fun save(ts: Double?) { if (t.text.isNotBlank()) { db.addMemo(t.text.toString(), ts, "", kind); changed() } }
+        body.add(row().apply {
+            setPadding(0, 0, 0, dp(12))
+            add(t, weight = 1f, marginEnd = 8)
+            add(iconButton(R.drawable.ms_schedule) { pickDue { ts -> save(ts) } }, marginEnd = if (agenda) 0 else 8)
+            if (!agenda) add(iconButton(R.drawable.ms_checklist) { save(null) })
+        })
 
         val open = db.openMemos(kind)
-        body.add(card().apply {
-            add(text(if (agenda) "In programma" else "Da fare", 15f, bold = true))
-            if (open.isEmpty()) add(text(if (agenda) "Nessun appuntamento." else "Niente in sospeso.", 14f, Ui.MUT))
-            var last = ""
-            open.forEach { m ->
-                if (agenda) {   // raggruppata per giorno
-                    val d = (m["due_ts"] as? Double)?.let {
-                        java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.ITALY).format(java.util.Date((it * 1000).toLong()))
-                    } ?: "senza data"
-                    if (d != last) { add(text(d.uppercase(), 11f, Ui.MUT, bold = true).apply { setPadding(0, dp(10), 0, 0) }); last = d }
-                }
-                add(memoRow(m))
+        if (open.isEmpty()) body.add(text(if (agenda) "Nessun appuntamento in programma: compaiono da soli quando ne parli."
+                                           else "Niente in sospeso.", 14f, Ui.MUT).apply { setPadding(dp(4), 0, dp(4), 0) })
+        if (agenda) {
+            // per giorno: orario a sinistra, titolo e dettagli a destra
+            open.groupBy { day(it["due_ts"] as? Double) }.forEach { (d, ms) ->
+                body.add(section(d))
+                body.add(card().apply { ms.forEach { add(agendaRow(it)) } })
             }
-        })
-        if (!agenda) body.add(row().apply {
-            setPadding(0, dp(4), 0, 0)
-            add(dueChip("ora", "esplicita", false), marginEnd = 6); add(text("detta esplicitamente   ", 12f, Ui.MUT))
-            add(dueChip("~ora", "ipotizzata", false), marginEnd = 6); add(text("stimata dai tuoi ritmi", 12f, Ui.MUT))
-        })
+        } else {
+            val now = Ui.now()
+            val endToday = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59) }.timeInMillis / 1000.0
+            val groups = listOf(
+                "Oggi" to open.filter { (it["due_ts"] as? Double)?.let { d -> d <= endToday } == true },
+                "Prossimi giorni" to open.filter { (it["due_ts"] as? Double)?.let { d -> d > endToday } == true },
+                "Quando capita" to open.filter { it["due_ts"] == null })
+            groups.filter { it.second.isNotEmpty() }.forEach { (title, ms) ->
+                body.add(section(title))
+                body.add(card().apply { ms.forEach { add(todoRow(it, now)) } })
+            }
+        }
         val done = db.doneMemos(kind)
-        if (done.isNotEmpty()) body.add(card().apply {
-            (layoutParams as LinearLayout.LayoutParams).topMargin = dp(10)
-            add(text(if (agenda) "Passati" else "Fatti di recente", 15f, bold = true))
-            done.forEach { add(memoRow(it)) }
-        })
-    }
-
-    private fun dueChip(s: String, kind: String?, late: Boolean) = text(s, 12f, Color.WHITE).apply {
-        setPadding(dp(7), dp(1), dp(7), dp(1))
-        when {
-            late -> background = bg(Ui.LATE, 12f)
-            kind == "ipotizzata" -> { setTextColor(Ui.WARN); background = bg(Color.TRANSPARENT, 12f, Ui.WARN, dashed = true) }
-            else -> background = bg(Ui.ACC, 12f)
+        if (done.isNotEmpty()) {
+            body.add(section(if (agenda) "Passati" else "Fatti di recente"))
+            body.add(card().apply { done.take(10).forEach { add(if (agenda) agendaRow(it) else todoRow(it, Ui.now())) } })
         }
     }
 
-    private fun memoRow(m: Map<String, Any?>): View {
+    private fun day(ts: Double?) = ts?.let {
+        java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.ITALY).format(java.util.Date((it * 1000).toLong()))
+            .replaceFirstChar { c -> c.uppercase() }
+    } ?: "Senza data"
+
+    private fun section(title: String) = text(title.uppercase(), 11f, Ui.MUT, bold = true).apply {
+        letterSpacing = 0.08f; setPadding(dp(6), dp(10), 0, dp(6))
+    }
+
+    /** Tocco lungo: orario, elimina. Niente pulsanti sempre in vista. */
+    private fun actions(v: View, uid: String) = v.setOnLongClickListener {
+        android.widget.PopupMenu(this, v).apply {
+            menu.add("Cambia orario").setOnMenuItemClickListener { pickDue { ts -> db.setMemoDue(uid, ts); changed() }; true }
+            menu.add("Elimina").setOnMenuItemClickListener { db.deleteMemo(uid); changed(); true }
+            show()
+        }
+        true
+    }
+
+    private fun todoRow(m: Map<String, Any?>, now: Double): View {
         val uid = m["uid"] as String
         val done = m["done"] == 1L
-        val r = row().apply { setPadding(0, dp(6), 0, dp(6)) }
+        val r = row().apply { setPadding(0, dp(6), 0, dp(6)); gravity = android.view.Gravity.TOP }
         r.add(CheckBox(this).apply {
-            isChecked = done
+            isChecked = done; buttonTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             setOnCheckedChangeListener { _, v -> db.setMemoDone(uid, v); changed() }
         })
-        val info = column(0)
+        val info = column(0).apply { setPadding(0, dp(4), 0, 0) }
         info.add(text(m["text"] as String, 15f, if (done) Ui.MUT else Ui.FG, bold = !done))
-        (m["descr"] as? String)?.takeIf { it.isNotBlank() }?.let { info.add(text(it, 13f, Ui.MUT).apply { setPadding(0, dp(2), 0, dp(2)) }) }
-        val due = m["due_ts"] as? Double
-        if (due != null) {
-            val guessed = m["due_kind"] == "ipotizzata"
-            val chip = dueChip((if (guessed) "~" else "") + Ui.due(due), m["due_kind"] as? String, !done && due < Ui.now())
-            info.add(LinearLayout(this).apply { addView(chip) })
-        }
+        (m["descr"] as? String)?.takeIf { it.isNotBlank() }?.let { info.add(text(it, 13f, Ui.MUT).apply { setPadding(0, dp(2), 0, 0) }) }
         r.add(info, weight = 1f)
-        r.add(iconButton(R.drawable.ms_schedule) { pickDue { ts -> db.setMemoDue(uid, ts); changed() } }, marginEnd = 6)
-        r.add(iconButton(R.drawable.ms_close) {
-            AlertDialog.Builder(this).setMessage("Eliminare il memo?")
-                .setPositiveButton("Elimina") { _, _ -> db.deleteMemo(uid); changed() }
-                .setNegativeButton("Annulla", null).show()
-        })
+        (m["due_ts"] as? Double)?.let { due ->
+            val late = !done && due < now
+            r.add(text((if (m["due_kind"] == "ipotizzata") "~" else "") + Ui.hm(due), 12f, if (late) Ui.ACC else Ui.MUT)
+                .apply { setPadding(dp(8), dp(6), dp(4), 0) })
+        }
+        actions(r, uid)
+        return r
+    }
+
+    private fun agendaRow(m: Map<String, Any?>): View {
+        val uid = m["uid"] as String
+        val r = row().apply { setPadding(0, dp(8), 0, dp(8)); gravity = android.view.Gravity.TOP }
+        r.add(text((m["due_ts"] as? Double)?.let { Ui.hm(it) } ?: "—", 15f, Ui.NAME, bold = true)
+            .apply { layoutParams = LinearLayout.LayoutParams(dp(58), -2) })
+        val info = column(0)
+        info.add(text(m["text"] as String, 15f, bold = true))
+        (m["descr"] as? String)?.takeIf { it.isNotBlank() }?.let { info.add(text(it, 13f, Ui.MUT).apply { setPadding(0, dp(2), 0, 0) }) }
+        r.add(info, weight = 1f)
+        actions(r, uid)
         return r
     }
 
@@ -154,7 +170,9 @@ class PersonsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        body = page("Persone")
+        body = page("Persone") {
+            add(iconButton(R.drawable.ms_mic) { startActivity(android.content.Intent(this@PersonsActivity, VoiceActivity::class.java)) })
+        }
         render()
     }
 
@@ -162,46 +180,54 @@ class PersonsActivity : Activity() {
 
     private fun render() {
         body.removeAllViews()
-        body.add(text("\"Nome?\" = nome probabile dedotto dal parlato. Rinominare conferma la persona.", 13f, Ui.MUT)
-            .apply { setPadding(0, 0, 0, dp(10)) })
+        body.add(text("Tocca ▶ per sentire la voce, tocca il nome per rinominare. \"Nome?\" = nome dedotto dal parlato.",
+            13f, Ui.MUT).apply { setPadding(dp(4), 0, dp(4), dp(12)) })
         val all = db.persons()
         if (all.isEmpty()) body.add(text("Nessuna persona ancora: arriveranno dopo le prime registrazioni.", 14f, Ui.MUT))
         all.forEach { p ->
             val id = p["id"] as Long
             val confirmed = p["confirmed"] == 1L
             val owner = p["is_owner"] == 1L
+            val name = p["name"] as String
+            // una riga per persona: ascolta | nome e dettagli | menu
             body.add(card().apply {
+                setPadding(dp(10), dp(10), dp(6), dp(10))
                 add(row().apply {
-                    add(text(p["name"] as String, 17f, if (confirmed) Ui.FG else Ui.WARN, bold = true), weight = 1f)
-                    if (owner) add(text("⭐ io", 13f))
-                })
-                val min = ((p["talk_sec"] as? Number)?.toDouble() ?: 0.0) / 60
-                val seen = (p["last_seen"] as? Double)?.let { " · ultima volta " + Ui.dm(it) } ?: ""
-                add(text("%.0f min di parlato%s".format(min, seen), 12f, Ui.MUT))
-                // due righe di pulsanti a larghezza piena: niente testo a capo né pulsanti fuori schermo
-                lateinit var play: android.widget.Button
-                add(row().apply {
-                    setPadding(0, dp(10), 0, 0)
-                    play = button("Ascolta", primary = true, iconRes = R.drawable.ms_play_arrow) { listen(id, play) }
-                    add(play, weight = 1f, marginEnd = 8)
-                    add(button("Rinomina") { rename(id, p["name"] as String) }, weight = 1f)
-                })
-                add(row().apply {
-                    setPadding(0, dp(8), 0, 0)
-                    if (!confirmed) add(button("Conferma") { db.editPerson(id, confirmed = true); changed() }, weight = 1f, marginEnd = 8)
-                    if (!owner) add(button("Sono io") { db.editPerson(id, owner = true); changed() }, weight = 1f, marginEnd = 8)
-                    add(button("Unisci…") { merge(id, all) }, weight = 1f)
+                    lateinit var play: android.widget.ImageView
+                    play = iconButton(R.drawable.ms_play_arrow) { listen(id, play) }
+                    add(play, marginEnd = 12)
+                    add(column(0).apply {
+                        add(text(name + if (owner) "  · io" else "", 17f, if (confirmed) Ui.NAME else Ui.WARN, bold = true))
+                        val min = ((p["talk_sec"] as? Number)?.toDouble() ?: 0.0) / 60
+                        val seen = (p["last_seen"] as? Double)?.let { " · " + Ui.dm(it) } ?: ""
+                        add(text("%.0f min di parlato%s".format(min, seen), 12f, Ui.MUT))
+                        isClickable = true; setOnClickListener { rename(id, name) }
+                    }, weight = 1f)
+                    lateinit var more: android.widget.ImageView
+                    more = iconButton(R.drawable.ms_more_vert) { menu(more, id, name, confirmed, owner, all) }
+                    more.background = null
+                    add(more)
                 })
             })
+        }
+    }
+
+    private fun menu(anchor: View, id: Long, name: String, confirmed: Boolean, owner: Boolean, all: List<Map<String, Any?>>) {
+        android.widget.PopupMenu(this, anchor).apply {
+            menu.add("Rinomina").setOnMenuItemClickListener { rename(id, name); true }
+            if (!confirmed) menu.add("Conferma il nome").setOnMenuItemClickListener { db.editPerson(id, confirmed = true); changed(); true }
+            if (!owner) menu.add("Sono io").setOnMenuItemClickListener { db.editPerson(id, owner = true); changed(); true }
+            menu.add("Stessa persona di…").setOnMenuItemClickListener { merge(id, all); true }
+            show()
         }
     }
 
     private var player: android.media.MediaPlayer? = null
 
     /** Fa sentire la voce della persona (dal PC) per riconoscerla. */
-    private fun listen(id: Long, b: android.widget.Button) {
+    private fun listen(id: Long, b: android.widget.ImageView) {
         if (player != null) { stopVoice(); return }
-        b.text = "…"
+        b.alpha = 0.5f
         io.execute {
             val f = java.io.File(cacheDir, "voce_$id.ogg")
             val r = runCatching { Api(this).voice(id, f) }
@@ -211,9 +237,9 @@ class PersonsActivity : Activity() {
                         setDataSource(f.path); prepare(); start()
                         setOnCompletionListener { stopVoice() }
                     }
-                    b.text = "Stop"; b.setIcon(R.drawable.ms_stop)
+                    b.alpha = 1f; b.setImageDrawable(icon(R.drawable.ms_stop))
                 }.onFailure {
-                    b.text = "Ascolta"; b.setIcon(R.drawable.ms_play_arrow)
+                    b.alpha = 1f
                     Toast.makeText(this, "Non riesco a farla sentire: ${it.message}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -289,7 +315,8 @@ class ArchiveActivity : Activity() {
 
     private fun showDay(day: String) {
         val body = page(day) {
-            add(button("Cronologia") { startActivity(android.content.Intent(this@ArchiveActivity, TimelineActivity::class.java).putExtra("day", day)) })
+            add(iconButton(R.drawable.ms_event_note) { startActivity(android.content.Intent(this@ArchiveActivity, ReportActivity::class.java).putExtra("day", day)) }, marginEnd = 8)
+            add(iconButton(R.drawable.ms_history) { startActivity(android.content.Intent(this@ArchiveActivity, TimelineActivity::class.java).putExtra("day", day)) })
         }
         db.day(day)?.let { d ->
             if (d["mood"] != null) body.add(card().apply {
@@ -305,7 +332,7 @@ class ArchiveActivity : Activity() {
                 add(text("${Ui.hm(r["started_at"] as Double)}  ${r["title"] ?: ""}", 15f, bold = true))
                 add(text(kws(r["keywords"]).ifEmpty { r["status"] as? String ?: "" }, 12f, Ui.MUT))
                 feelings(r["feelings"]).takeIf { it.isNotEmpty() }?.let { f ->
-                    add(text(f.joinToString("  ·  ") { "${it.first} ${it.second}" }, 12f, Ui.WARN).apply { setPadding(0, dp(4), 0, 0) })
+                    add(text(Ui.names(f.joinToString("  ·  ") { "${it.first} ${it.second}" }, f.map { it.first }), 12f).apply { setPadding(0, dp(4), 0, 0) })
                 }
                 setOnClickListener { go(rec = r["id"] as Long) }
             })
@@ -318,13 +345,16 @@ class ArchiveActivity : Activity() {
         feelings(r?.get("feelings")).takeIf { it.isNotEmpty() }?.let { f ->
             body.add(card().apply {
                 add(text("Come sembravano sentirsi", 15f, bold = true))
-                f.forEach { add(text("${it.first}: ${it.second} — ${it.third}", 14f).apply { setPadding(0, dp(4), 0, 0) }) }
+                f.forEach { add(text(Ui.names("${it.first}: ${it.second} — ${it.third}", listOf(it.first)), 14f).apply { setPadding(0, dp(4), 0, 0) }) }
             })
         }
         val c = card()
         var target: View? = null
+        val names = db.personNames()
+        val owner = db.ownerName()
         db.transcript(rid).forEach { u ->
-            val t = text("${Ui.hm(u["ts"] as Double)}  ${u["speaker"]}: ${u["text"]}", 14f).apply { setPadding(0, dp(4), 0, dp(4)) }
+            val t = text(Ui.line("${Ui.hm(u["ts"] as Double)}  ", u["speaker"].toString(), u["text"].toString(), names, owner), 14f)
+                .apply { setPadding(0, dp(4), 0, dp(4)) }
             if (u["id"] == hl) { t.setBackgroundColor(0xFF5A3B10.toInt()); target = t }
             c.add(t)
         }
@@ -449,6 +479,139 @@ class TimelineActivity : Activity() {
                                else "PC non raggiungibile (${it.message}).", 14f, Ui.WARN))
                 }
             }
+        }
+    }
+}
+
+/** "Riconosci la mia voce": l'utente legge qualche frase (~25 s), il PC ne ricava l'impronta e lo segna come "io". */
+class VoiceActivity : Activity() {
+    private val ui = Handler(Looper.getMainLooper())
+    private var rec: android.media.MediaRecorder? = null
+    private val secs = 25
+
+    private val phrases = listOf(
+        "Buongiorno, sono io: questa è la mia voce normale, come quando parlo al lavoro.",
+        "Oggi devo chiamare il fornitore, preparare i documenti e controllare la consegna di venerdì.",
+        "Ventitré, quarantotto, centocinquanta: i numeri li dico così, senza fretta.",
+        "Se c'è rumore intorno va bene lo stesso, basta che parli con il mio tono di sempre.")
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val body = page("La mia voce")
+        val db = LocalDb.get(this)
+        body.add(text("Leggi ad alta voce queste frasi, con calma e con la tua voce di sempre. Servono circa $secs secondi: " +
+            "il PC impara a riconoscerti e ti distingue meglio dagli altri.", 14f, Ui.MUT).apply { setPadding(dp(4), 0, dp(4), dp(12)) })
+        body.add(card().apply { phrases.forEach { add(text("“$it”", 16f).apply { setPadding(0, dp(6), 0, dp(6)) }) } })
+        val name = input("Il tuo nome", db.ownerName() ?: "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS)
+        body.add(name)
+        val status = text("", 15f).apply { gravity = android.view.Gravity.CENTER; setPadding(0, dp(14), 0, dp(10)) }
+        lateinit var go: android.widget.Button
+        go = button("Inizia a leggere", primary = true, iconRes = R.drawable.ms_mic) {
+            if (rec != null) return@button
+            if (RecorderService.running) { status.text = "Ferma prima la registrazione in corso."; return@button }
+            if (name.text.isBlank()) { status.text = "Scrivi il tuo nome."; return@button }
+            start(java.io.File(cacheDir, "mia_voce.ogg"), status, go, name.text.toString().trim())
+        }
+        body.add(go.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(16) } })
+        body.add(status)
+    }
+
+    private fun start(f: java.io.File, status: android.widget.TextView, go: android.widget.Button, name: String) {
+        rec = android.media.MediaRecorder(this).apply {
+            setAudioSource(android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            setOutputFormat(android.media.MediaRecorder.OutputFormat.OGG)
+            setAudioEncoder(android.media.MediaRecorder.AudioEncoder.OPUS)
+            setAudioChannels(1); setAudioSamplingRate(48000); setAudioEncodingBitRate(48000)
+            setOutputFile(f.path); prepare(); start()
+        }
+        go.isEnabled = false
+        var left = secs
+        ui.post(object : Runnable {
+            override fun run() {
+                if (left > 0) { status.text = "Sto ascoltando… $left s"; left--; ui.postDelayed(this, 1000); return }
+                rec?.runCatching { stop() }; rec?.release(); rec = null
+                status.text = "Invio al PC e riconosco la voce…"
+                Executors.newSingleThreadExecutor().execute {
+                    val r = runCatching { Api(this@VoiceActivity).myVoice(f, name) }
+                    ui.post {
+                        go.isEnabled = true
+                        r.onSuccess { j ->
+                            status.text = if (j.optBoolean("gia_presente")) "Fatto ✓ Eri già nell'archivio: ora sei \"${j.optString("name")}\" e le tue frasi passate sono tue."
+                                          else "Fatto ✓ Ti riconoscerò dalle prossime registrazioni."
+                            SyncWorker.now(this@VoiceActivity)
+                        }.onFailure { status.text = "Non riuscito: ${it.message}" }
+                    }
+                }
+            }
+        })
+    }
+
+    override fun onPause() { super.onPause(); rec?.runCatching { stop() }; rec?.release(); rec = null }
+}
+
+/** Resoconto della giornata per situazioni: quando, con chi, in che contesto, cosa è successo. Offline. */
+class ReportActivity : Activity() {
+    private var day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        intent.getStringExtra("day")?.let { day = it }
+        render()
+    }
+
+    override fun onResume() { super.onResume(); render() }
+
+    private fun pickDay() {
+        val c = Calendar.getInstance().apply { time = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day)!! }
+        DatePickerDialog(this, { _, y, m, d -> day = "%04d-%02d-%02d".format(y, m + 1, d); render() },
+            c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
+    }
+
+    private fun render() {
+        val db = LocalDb.get(this)
+        val label = java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.ITALY)
+            .format(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day)!!)
+            .replaceFirstChar { it.uppercase() }
+        val body = page(label) {
+            add(iconButton(R.drawable.ms_history) {
+                startActivity(android.content.Intent(this@ReportActivity, TimelineActivity::class.java).putExtra("day", day))
+            }, marginEnd = 8)
+            add(iconButton(R.drawable.ms_calendar_month) { pickDay() })
+        }
+        val names = db.personNames()
+        val d = db.day(day)
+        if (d?.get("mood") != null) body.add(card().apply {
+            val mood = (d["mood_score"] as? Long)?.toInt()?.let { Ui.MOODS[it] } ?: ""
+            add(text("$mood ${d["mood"]}", 18f, bold = true))
+            add(text(d["mood_reason"] as? String ?: "", 13f, Ui.MUT))
+            (d["tip"] as? String)?.let { add(text(it, 14f, Ui.OK).apply { setPadding(0, dp(8), 0, 0) }) }
+        })
+        val sits = runCatching { JSONArray(d?.get("situations") as? String ?: "[]") }.getOrDefault(JSONArray())
+        if (sits.length() == 0) {
+            body.add(text(if (db.recordingsOf(day).isEmpty()) "Nessuna registrazione in questo giorno."
+                          else "Il resoconto si prepara una decina di minuti dopo l'ultimo blocco registrato.", 14f, Ui.MUT)
+                .apply { setPadding(dp(4), dp(8), dp(4), 0) })
+            return
+        }
+        for (i in 0 until sits.length()) {
+            val s = sits.getJSONObject(i)
+            body.add(card().apply {
+                add(row().apply {
+                    add(text("${s.optString("dalle")}–${s.optString("alle")}", 12f, Ui.MUT), weight = 1f)
+                    s.optString("contesto").takeIf { it.isNotBlank() }?.let {
+                        add(text(it, 11f, Color.WHITE).apply {
+                            setPadding(dp(8), dp(2), dp(8), dp(2)); background = bg(0x33FFFFFF, dp(10).toFloat())
+                        })
+                    }
+                })
+                add(text(s.optString("titolo"), 17f, bold = true).apply { setPadding(0, dp(4), 0, dp(2)) })
+                val who = s.optJSONArray("persone")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
+                if (who.isNotEmpty()) add(text(Ui.names("con " + who.joinToString(", "), who), 13f))
+                add(text(Ui.names(s.optString("sintesi"), names + who), 14f).apply { setPadding(0, dp(6), 0, 0) })
+                setOnClickListener {
+                    startActivity(android.content.Intent(this@ReportActivity, ArchiveActivity::class.java).putExtra("day", day))
+                }
+            })
         }
     }
 }

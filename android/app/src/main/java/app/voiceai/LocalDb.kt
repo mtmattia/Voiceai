@@ -13,7 +13,7 @@ import java.util.UUID
  * Copia locale dell'archivio: trascrizioni, giornate, persone, memo. Consultabile offline.
  * persons/memos hanno dirty=1 finché la modifica locale non è stata inviata al PC.
  */
-class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai.db", null, 2) {
+class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai.db", null, 3) {
     companion object {
         @Volatile private var inst: LocalDb? = null
         fun get(ctx: Context) = inst ?: synchronized(this) { inst ?: LocalDb(ctx.applicationContext).also { inst = it } }
@@ -26,11 +26,11 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             done INTEGER DEFAULT 0, done_ts REAL, source TEXT, recording_id INTEGER, created REAL, updated_at REAL,
             dirty INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0, descr TEXT DEFAULT '', kind TEXT DEFAULT 'todo')""")
         db.execSQL("""CREATE TABLE recordings(id INTEGER PRIMARY KEY, day TEXT, started_at REAL, duration REAL,
-            status TEXT, title TEXT, keywords TEXT, feelings TEXT)""")
+            status TEXT, title TEXT, keywords TEXT, feelings TEXT, summary TEXT)""")
         db.execSQL("""CREATE TABLE utterances(id INTEGER PRIMARY KEY, recording_id INTEGER, ts REAL, start REAL,
             stop REAL, label TEXT, person_id INTEGER, text TEXT)""")
         db.execSQL("""CREATE TABLE days(day TEXT PRIMARY KEY, keywords TEXT, summary TEXT, mood TEXT,
-            mood_score INTEGER, mood_reason TEXT, tip TEXT)""")
+            mood_score INTEGER, mood_reason TEXT, tip TEXT, situations TEXT)""")
         db.execSQL("""CREATE VIRTUAL TABLE utt_fts USING fts4(text, tokenize=unicode61 "remove_diacritics=1")""")
         db.execSQL("CREATE INDEX utt_rec ON utterances(recording_id)")
         db.execSQL("CREATE INDEX utt_ts ON utterances(ts)")
@@ -41,6 +41,10 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             db.execSQL("ALTER TABLE memos ADD COLUMN descr TEXT DEFAULT ''")
             db.execSQL("ALTER TABLE memos ADD COLUMN kind TEXT DEFAULT 'todo'")
             db.execSQL("ALTER TABLE recordings ADD COLUMN feelings TEXT")
+        }
+        if (old < 3) {   // resoconto: sintesi per blocco e situazioni della giornata
+            db.execSQL("ALTER TABLE recordings ADD COLUMN summary TEXT")
+            db.execSQL("ALTER TABLE days ADD COLUMN situations TEXT")
         }
     }
 
@@ -88,7 +92,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             r.optJSONArray("memos")?.objects()?.forEach { applyMemo(db, it) }
             r.optJSONArray("recordings")?.objects()?.forEach {
                 db.insertWithOnConflict("recordings", null,
-                    it.cv("id", "day", "started_at", "duration", "status", "title", "keywords", "feelings"), SQLiteDatabase.CONFLICT_REPLACE)
+                    it.cv("id", "day", "started_at", "duration", "status", "title", "keywords", "feelings", "summary"), SQLiteDatabase.CONFLICT_REPLACE)
             }
             r.optJSONArray("utterances")?.objects()?.forEach {
                 val cv = it.cv("id", "recording_id", "ts", "start", "label", "person_id", "text")
@@ -99,7 +103,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             }
             r.optJSONArray("days")?.objects()?.forEach {
                 db.insertWithOnConflict("days", null,
-                    it.cv("day", "keywords", "summary", "mood", "mood_score", "mood_reason", "tip"), SQLiteDatabase.CONFLICT_REPLACE)
+                    it.cv("day", "keywords", "summary", "mood", "mood_score", "mood_reason", "tip", "situations"), SQLiteDatabase.CONFLICT_REPLACE)
             }
             r.optJSONArray("deleted")?.objects()?.forEach { d ->
                 val key = d.getString("key")
@@ -246,6 +250,10 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
     fun recordingsOf(day: String) = q("SELECT * FROM recordings WHERE day=? ORDER BY started_at", day)
     fun transcript(rid: Long) = q("""SELECT u.id, u.ts, u.text, COALESCE(p.name, u.label) AS speaker FROM utterances u
         LEFT JOIN persons p ON p.id=u.person_id WHERE recording_id=? ORDER BY start""", rid)
+    /** Nomi delle persone (per evidenziarli) e nome dell'utente. */
+    fun personNames() = q("SELECT name FROM persons").mapNotNull { (it["name"] as? String)?.takeUnless { n -> n.startsWith("Sconosciuto") } }
+    fun ownerName() = q("SELECT name FROM persons WHERE is_owner=1").firstOrNull()?.get("name") as? String
+
     fun recording(rid: Long) = q("SELECT * FROM recordings WHERE id=?", rid).firstOrNull()
 }
 

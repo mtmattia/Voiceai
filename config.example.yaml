@@ -14,7 +14,9 @@ asr:
   batch_size: 8           # abbassa a 4 se va in OOM
   language: it
   # Nomi e termini ricorrenti: aiutano Whisper a scriverli giusti
-  initial_prompt: "Riunione di lavoro. Partecipanti: Marco, Giulia, Luca, Sara, Paolo."
+  # Metti SOLO nomi e termini veri che ricorrono: Whisper li tiene come riferimento (e nei silenzi a volte
+  # li ripete: quelle frasi vengono scartate). Nomi d'esempio qui = nomi inventati nelle trascrizioni.
+  initial_prompt: "Conversazione di lavoro tra colleghi."
   # Pulizia audio prima di Whisper (ffmpeg): toglie rombi/sibili e alza le voci lontane. "" = disattiva.
   # Evitare la riduzione rumore aggressiva (afftdn): nelle prove fa inventare più frasi.
   audio_filter: "highpass=f=80,lowpass=f=7500,dynaudnorm=f=150:g=15:p=0.9:m=20"
@@ -27,7 +29,7 @@ diarization:
 speakers:
   threshold: 0.50         # cosine minima impronta->speaker. Tarare con i report (meeting.json)
   # Nomi possibili per la deduzione da testo (vocativi, "sono Marco")
-  known_names: [Marco, Giulia, Luca, Sara, Paolo]
+  known_names: []        # es. i nomi veri dei colleghi
   min_votes: 2            # indizi minimi per assegnare un nome dal testo
   guest_label: Ospite
 

@@ -19,6 +19,8 @@ Estrai due liste separate.
 1. "todo": cose che {owner} deve fare: impegni che prende o richieste che altri gli fanno e che accetta.
 Ignora chiacchiere, opinioni, cose già fatte, frasi generiche ("fare delle cose").
 2. "agenda": appuntamenti e incontri con un giorno o un orario detto nel testo (riunioni, visite, consegne).
+Un appuntamento va SOLO in agenda, mai anche nei todo. Un todo è un'azione da fare (preparare, stampare,
+chiamare, mandare, comprare), non un incontro.
 Usa SOLO ciò che c'è nella trascrizione: nessun esempio, nessuna voce inventata. Meglio zero voci che voci vaghe.
 
 Per ogni voce:
@@ -38,6 +40,8 @@ TRASCRIZIONE:
 MOMENT_HOURS = {"mattina": 9.5, "pranzo": 12.5, "pomeriggio": 16.0, "sera": 19.5}
 WEEKDAYS = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
 _W = re.compile(r"[a-zà-ù]{3,}")
+_MEETING = re.compile(r"(appuntamento|riunione|incontro|visita|cena|pranzo|colloquio|call|videochiamata|"
+                      r"consegna (?:al|dal|a|da)|dal (?:medico|dentista|cliente))")
 _STOP = {"che", "per", "con", "del", "della", "dei", "alle", "allo", "una", "uno", "gli", "le", "non", "sono"}
 
 
@@ -116,25 +120,34 @@ def extract(db, cfg, rid):
             d = d if isinstance(d, dict) else {}
         except Exception as e:
             log.warning("memo blocco %s: %s", rid, e)
-    for kind in ("todo", "agenda"):
-        for m in d.get(kind) or [] if isinstance(d.get(kind), list) else []:
-            title = str(m.get("titolo") or m.get("testo") or "").strip()[:120] if isinstance(m, dict) else ""
-            if not title:
+    # un incontro con orario finito tra i todo va in agenda; un todo uguale a una voce d'agenda è un doppione
+    items = [("agenda", m) for m in (d.get("agenda") if isinstance(d.get("agenda"), list) else [])]
+    for m in d.get("todo") if isinstance(d.get("todo"), list) else []:
+        t = str(m.get("titolo") or "") if isinstance(m, dict) else ""
+        meet = _MEETING.match(t.strip().lower()) and _parse_when(m.get("quando"))
+        items.append(("agenda" if meet else "todo", m))
+    agenda_titles = []
+    for kind, m in items:
+        title = str(m.get("titolo") or m.get("testo") or "").strip()[:120] if isinstance(m, dict) else ""
+        if not title:
+            continue
+        descr = str(m.get("descrizione") or "").strip()[:1000]
+        if re.match(r"(non specificat|nessun dettagli|nessuna descrizion|n/?a\b)", descr.lower()):
+            descr = ""
+        due = _parse_when(m.get("quando"))
+        if due and due < rec["started_at"] - 3600:
+            due = None
+        if kind == "agenda":
+            if due:   # un appuntamento senza data non è agenda: diventa un todo
+                add(db, title, rid, due, "esplicita", None, descr=descr, kind="agenda")
+                agenda_titles.append(title)
                 continue
-            descr = str(m.get("descrizione") or "").strip()[:1000]
-            if re.match(r"(non specificat|nessun dettagli|nessuna descrizion|n/?a\b)", descr.lower()):
-                descr = ""
-            due = _parse_when(m.get("quando"))
-            if due and due < rec["started_at"] - 3600:
-                due = None
-            if kind == "agenda":
-                if due:   # un appuntamento senza data non è agenda: diventa un todo
-                    add(db, title, rid, due, "esplicita", None, descr=descr, kind="agenda")
-                    continue
-            moment = m.get("momento") if m.get("momento") in MOMENT_HOURS else None
-            if due:
-                add(db, title, rid, due, "esplicita", moment, descr=descr)
-            else:
-                g = guess_due(db, title, moment, rec["started_at"])
-                add(db, title, rid, g, "ipotizzata" if g else None, moment, descr=descr)
+        if any(jaccard(title, a) >= 0.5 for a in agenda_titles):
+            continue
+        moment = m.get("momento") if m.get("momento") in MOMENT_HOURS else None
+        if due:
+            add(db, title, rid, due, "esplicita", moment, descr=descr)
+        else:
+            g = guess_due(db, title, moment, rec["started_at"])
+            add(db, title, rid, g, "ipotizzata" if g else None, moment, descr=descr)
     db.q("UPDATE recordings SET memos_done=1 WHERE id=?", (rid,))

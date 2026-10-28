@@ -103,7 +103,13 @@ class Worker(threading.Thread):
         kw = db.one("SELECT id FROM recordings WHERE status='done' AND keywords IS NULL LIMIT 1")
         day = db.one("SELECT day FROM days WHERE dirty=1 AND last_activity < ? ORDER BY day LIMIT 1",
                      (time.time() - w["day_idle_minutes"] * 60,))
-        if not (mem or kw or day):
+        # resoconto per situazioni: si aggiorna presto (10 min senza blocchi nuovi), è una chiamata leggera
+        sit = None if (mem or kw) else db.one(
+            """SELECT d.day FROM days d WHERE d.last_activity < ? AND
+               (SELECT COUNT(*) FROM recordings r WHERE r.day=d.day AND r.status='done' AND r.keywords IS NOT NULL)
+               > COALESCE(d.situations_n, 0) ORDER BY d.day LIMIT 1""",
+            (time.time() - w.get("situations_idle_minutes", 10) * 60,))
+        if not (mem or kw or day or sit):
             return False
         self.shared.acquire()
         self.engine.unload()   # libera VRAM per Ollama
@@ -112,6 +118,8 @@ class Worker(threading.Thread):
                 memos.extract(db, cfg, mem["id"])
             elif kw:
                 insights.recording_keywords(db, cfg, kw["id"])
+            elif sit:
+                insights.build_situations(db, cfg, sit["day"])
             else:
                 log.info("giornata %s: riassunto e umore", day["day"])
                 insights.build_day(db, cfg, day["day"])
@@ -122,9 +130,20 @@ class Worker(threading.Thread):
                 db.q("UPDATE recordings SET memos_done=1 WHERE id=?", (mem["id"],))
             elif kw:
                 db.q("UPDATE recordings SET keywords='[]' WHERE id=?", (kw["id"],))
+            elif sit:
+                db.q("UPDATE days SET situations_n=999999 WHERE day=?", (sit["day"],))
             else:
                 db.q("UPDATE days SET dirty=0 WHERE day=?", (day["day"],))
         return True
+
+    def enroll(self, path, name=None):
+        """Impronta della voce dell'utente dall'app: scarica Whisper (la VRAM serve a pyannote), poi riconosce."""
+        from . import asr
+        with self.gpu:
+            self.shared.acquire()
+            self.engine.unload()
+            emb = asr.embed_clip(path, self.cfg, getattr(self.engine, "token", None))
+            return people.enroll_owner(self.db, emb, self.cfg, name)
 
     def ask(self, question):
         """Domanda dall'app: aspetta il blocco in corso, libera la VRAM, risponde."""
