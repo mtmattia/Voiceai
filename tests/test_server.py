@@ -320,3 +320,17 @@ def test_cronologia(env, monkeypatch):
         ("08:23", "Mattia parla con Marco"), ("08:33", "Mattia parla con AI: «cosa ha detto Marco?»")]
     assert ev[0]["recording_id"] == 1
     assert c.get("/api/days/28-10-2026/timeline", headers=H).status_code == 400
+
+
+def test_abbinamento(env):
+    cfg, db, w, c = env
+    assert c.post("/api/pair", json={"code": "123456"}).status_code == 403
+    f = cfg["storage"]["data_dir"] / "pair.json"
+    f.write_text(json.dumps({"code": "123456", "expires": time.time() + 600, "attempts": 0}))
+    assert c.post("/api/pair", json={"code": "000000"}).status_code == 403
+    assert c.post("/api/pair", json={"code": "123456"}).json() == {"token": TOK}
+    assert not f.exists()                                   # monouso
+    f.write_text(json.dumps({"code": "123456", "expires": time.time() + 600, "attempts": 0}))
+    for _ in range(5):
+        c.post("/api/pair", json={"code": "999999"})
+    assert c.post("/api/pair", json={"code": "123456"}).status_code == 403   # bloccato dopo 5 errori

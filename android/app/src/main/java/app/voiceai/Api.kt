@@ -62,6 +62,10 @@ class Api(ctx: Context) {
         return exec(req("/api/upload").post(body).build(), okCodes = setOf(422))
     }
 
+    /** Abbinamento: codice a 6 cifre (da `voiceai abbina` sul PC) -> token. Senza autenticazione. */
+    fun pair(code: String) = exec(Request.Builder().url("$base/api/pair")
+        .post(JSONObject().put("code", code).toString().toRequestBody(json)).build()).getString("token")
+
     fun status() = exec(req("/api/status").get().build())
     fun pull(since: Long, limit: Int = 2000) = exec(req("/api/sync/pull?since=$since&limit=$limit").get().build())
     fun push(data: JSONObject) = exec(req("/api/sync/push").post(data.toString().toRequestBody(json)).build())

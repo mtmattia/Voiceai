@@ -36,6 +36,10 @@ class Question(BaseModel):
     q: str
 
 
+class Pair(BaseModel):
+    code: str
+
+
 class MemoIn(BaseModel):
     text: Optional[str] = None
     done: Optional[bool] = None
@@ -53,6 +57,28 @@ def create_app(cfg, db: DB, token: str, worker=None):
             raise HTTPException(401, "token non valido")
 
     A = [Depends(auth)]
+
+    # abbinamento dell'app: codice a 6 cifre creato con `voiceai abbina`, monouso, 10 minuti, 5 tentativi
+    pair_file = cfg["storage"]["data_dir"] / "pair.json"
+
+    @app.post("/api/pair")
+    def pair(p: Pair):
+        try:
+            st = json.loads(pair_file.read_text())
+        except (OSError, ValueError):
+            raise HTTPException(403, "nessun abbinamento in corso: lancia `voiceai abbina` sul PC")
+        if time.time() > st["expires"]:
+            pair_file.unlink(missing_ok=True)
+            raise HTTPException(403, "codice scaduto")
+        if not hmac.compare_digest(p.code.strip(), st["code"]):
+            st["attempts"] = st.get("attempts", 0) + 1
+            if st["attempts"] >= 5:
+                pair_file.unlink(missing_ok=True)
+            else:
+                pair_file.write_text(json.dumps(st))
+            raise HTTPException(403, "codice errato")
+        pair_file.unlink(missing_ok=True)
+        return {"token": token}
 
     @app.get("/")
     def index():

@@ -32,6 +32,7 @@ def main(argv=None):
 
     s = sub.add_parser("server", help="server per l'app Android + shell web + elaborazione a blocchi")
     s.add_argument("--senza-worker", action="store_true", help="solo API, nessuna elaborazione")
+    sub.add_parser("abbina", help="codice monouso (10 min) per collegare l'app senza digitare il token")
     n = sub.add_parser("aggiungi-persona", help="crea una persona nell'archivio da una clip della sua voce")
     n.add_argument("nome")
     n.add_argument("audio")
@@ -77,6 +78,16 @@ def main(argv=None):
         from . import server
         server.serve(cfg, config.api_token(cfg), None if a.senza_worker else config.hf_token(cfg),
                      with_worker=not a.senza_worker)
+    elif a.cmd == "abbina":
+        import json, os, secrets, time
+        d = cfg["storage"]["data_dir"]
+        d.mkdir(parents=True, exist_ok=True)
+        code = f"{secrets.randbelow(10**6):06d}"
+        f = d / "pair.json"
+        fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump({"code": code, "expires": time.time() + 600, "attempts": 0}, fh)
+        print(f"Codice di abbinamento: {code} (valido 10 minuti, una volta sola)")
     elif a.cmd == "aggiungi-persona":
         from . import asr
         from .db import DB

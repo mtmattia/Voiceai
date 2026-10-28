@@ -272,6 +272,7 @@ class SettingsActivity : Activity() {
         val body = page("Impostazioni")
         val server = input("http://100.x.y.z:8765", p.server, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val token = input("Token", p.token, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            .apply { transformationMethod = android.text.method.PasswordTransformationMethod.getInstance() }
         val device = input("Nome dispositivo", p.device)
         val chunk = input("Minuti per blocco (5-10)", p.chunkMinutes.toString(), InputType.TYPE_CLASS_NUMBER)
         val black = input("Secondi prima dello schermo nero", p.blackAfterSec.toString(), InputType.TYPE_CLASS_NUMBER)
@@ -296,6 +297,29 @@ class SettingsActivity : Activity() {
             })
         })
         body.add(out)
+        // abbinamento: evita di digitare il token (sul PC: voiceai abbina)
+        val code = input("Codice di abbinamento (6 cifre)", "", InputType.TYPE_CLASS_NUMBER)
+        body.add(text("\nAbbina col PC", 15f, bold = true))
+        body.add(text("Scrivi l'indirizzo del server qui sopra, poi il codice che ti dà `voiceai abbina` sul PC.", 12f, Ui.MUT))
+        body.add(row().apply {
+            setPadding(0, dp(8), 0, 0)
+            add(code, weight = 1f, marginEnd = 8)
+            add(button("Abbina", primary = true) {
+                p.server = server.text.toString(); p.device = device.text.toString()
+                out.text = "Abbino…"
+                val c = code.text.toString()
+                Executors.newSingleThreadExecutor().execute {
+                    val r = runCatching { Api(this@SettingsActivity).pair(c) }
+                    runOnUiThread {
+                        r.onSuccess { t ->
+                            p.token = t; token.setText(t); code.setText("")
+                            out.text = "Abbinato ✓ Il telefono ora è collegato al PC."
+                            UploadWorker.enqueue(this@SettingsActivity); SyncWorker.now(this@SettingsActivity)
+                        }.onFailure { out.text = "Errore: ${it.message}" }
+                    }
+                }
+            })
+        })
         body.add(text("\nIl telefono deve avere Tailscale attivo. I blocchi vengono cancellati dal telefono solo dopo " +
             "che il PC ha confermato lo stesso SHA-256.", 12f, Ui.MUT))
     }
