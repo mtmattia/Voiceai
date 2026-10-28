@@ -180,3 +180,15 @@ def test_eco_del_prompt():
     prompt = "Conversazione di lavoro tra colleghi. Nomi e termini: Eros, Fast Wash."
     segs = [{"text": "Eros, Fast Wash."}, {"text": "Eros"}, {"text": "Eros deve andare a montare."}]
     assert [s["text"] for s in text.drop_hallucinations(segs, prompt)] == ["Eros deve andare a montare."]
+
+
+def test_sovrapposizioni():
+    import pandas as pd
+    from voiceai import asr
+    df = pd.DataFrame([(0, 10, "A"), (8, 15, "B"), (20, 25, "A")], columns=["start", "end", "speaker"])
+    over = asr.overlaps(df)
+    assert over == [(8, 10)]
+    assert asr.overlap_share(over, 8, 12) == 0.5 and asr.overlap_share(over, 20, 25) == 0
+    t = text.turns([{"start": 0, "end": 5, "speaker": "A", "text": "uno"},
+                    {"start": 6, "end": 9, "speaker": "A", "text": "due", "overlap": True}])
+    assert t[0]["overlap"] and t[0]["text"] == "uno due"

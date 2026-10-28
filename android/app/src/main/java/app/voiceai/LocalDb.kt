@@ -13,7 +13,7 @@ import java.util.UUID
  * Copia locale dell'archivio: trascrizioni, giornate, persone, memo. Consultabile offline.
  * persons/memos hanno dirty=1 finché la modifica locale non è stata inviata al PC.
  */
-class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai.db", null, 3) {
+class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai.db", null, 4) {
     companion object {
         @Volatile private var inst: LocalDb? = null
         fun get(ctx: Context) = inst ?: synchronized(this) { inst ?: LocalDb(ctx.applicationContext).also { inst = it } }
@@ -28,7 +28,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
         db.execSQL("""CREATE TABLE recordings(id INTEGER PRIMARY KEY, day TEXT, started_at REAL, duration REAL,
             status TEXT, title TEXT, keywords TEXT, feelings TEXT, summary TEXT)""")
         db.execSQL("""CREATE TABLE utterances(id INTEGER PRIMARY KEY, recording_id INTEGER, ts REAL, start REAL,
-            stop REAL, label TEXT, person_id INTEGER, text TEXT)""")
+            stop REAL, label TEXT, person_id INTEGER, text TEXT, overlap INTEGER DEFAULT 0)""")
         db.execSQL("""CREATE TABLE days(day TEXT PRIMARY KEY, keywords TEXT, summary TEXT, mood TEXT,
             mood_score INTEGER, mood_reason TEXT, tip TEXT, situations TEXT)""")
         db.execSQL("""CREATE VIRTUAL TABLE utt_fts USING fts4(text, tokenize=unicode61 "remove_diacritics=1")""")
@@ -46,6 +46,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             db.execSQL("ALTER TABLE recordings ADD COLUMN summary TEXT")
             db.execSQL("ALTER TABLE days ADD COLUMN situations TEXT")
         }
+        if (old < 4) db.execSQL("ALTER TABLE utterances ADD COLUMN overlap INTEGER DEFAULT 0")   // due voci insieme
     }
 
     // ---------- helpers ----------
@@ -95,7 +96,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
                     it.cv("id", "day", "started_at", "duration", "status", "title", "keywords", "feelings", "summary"), SQLiteDatabase.CONFLICT_REPLACE)
             }
             r.optJSONArray("utterances")?.objects()?.forEach {
-                val cv = it.cv("id", "recording_id", "ts", "start", "label", "person_id", "text")
+                val cv = it.cv("id", "recording_id", "ts", "start", "label", "person_id", "text", "overlap")
                 cv.put("stop", it.optDouble("end", 0.0))
                 db.insertWithOnConflict("utterances", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                 db.execSQL("DELETE FROM utt_fts WHERE docid=?", arrayOf(it.getLong("id")))
@@ -248,7 +249,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
         (SELECT COUNT(*) FROM recordings r WHERE r.day=d.day) AS n_rec FROM days d ORDER BY d.day DESC""")
     fun day(day: String) = q("SELECT * FROM days WHERE day=?", day).firstOrNull()
     fun recordingsOf(day: String) = q("SELECT * FROM recordings WHERE day=? ORDER BY started_at", day)
-    fun transcript(rid: Long) = q("""SELECT u.id, u.ts, u.text, COALESCE(p.name, u.label) AS speaker FROM utterances u
+    fun transcript(rid: Long) = q("""SELECT u.id, u.ts, u.text, u.overlap, COALESCE(p.name, u.label) AS speaker FROM utterances u
         LEFT JOIN persons p ON p.id=u.person_id WHERE recording_id=? ORDER BY start""", rid)
     /** Nomi delle persone (per evidenziarli) e nome dell'utente. */
     fun personNames() = q("SELECT name FROM persons").mapNotNull { (it["name"] as? String)?.takeUnless { n -> n.startsWith("Sconosciuto") } }

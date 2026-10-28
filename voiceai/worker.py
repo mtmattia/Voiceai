@@ -25,10 +25,10 @@ def process_recording(db, cfg, engine, rec):
     now = time.time()
     with db.tx() as c:
         c.execute("DELETE FROM utterances WHERE recording_id=?", (rec["id"],))
-        c.executemany("INSERT INTO utterances(recording_id, ts, start, end, label, person_id, text) "
-                      "VALUES(?,?,?,?,?,?,?)",
+        c.executemany("INSERT INTO utterances(recording_id, ts, start, end, label, person_id, text, overlap) "
+                      "VALUES(?,?,?,?,?,?,?,?)",
                       [(rec["id"], rec["started_at"] + t["start"], t["start"], t["end"], t["speaker"],
-                        pmap.get(t["speaker"]), t["text"]) for t in trns])
+                        pmap.get(t["speaker"]), t["text"], int(t.get("overlap", False))) for t in trns])
         c.execute("UPDATE recordings SET status='done', error=NULL, corrected=0, duration=? WHERE id=?",
                   (r["duration"], rec["id"]))
         c.execute("""INSERT INTO days(day, dirty, last_activity) VALUES(?,1,?)

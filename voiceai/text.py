@@ -52,8 +52,10 @@ def turns(segs, max_gap=2.0):
         if out and out[-1]["speaker"] == s["speaker"] and s["start"] - out[-1]["end"] <= max_gap:
             out[-1]["end"] = s["end"]
             out[-1]["text"] += " " + s["text"]
+            out[-1]["overlap"] = out[-1]["overlap"] or bool(s.get("overlap"))
         else:
-            out.append(dict(start=s["start"], end=s["end"], speaker=s["speaker"], text=s["text"]))
+            out.append(dict(start=s["start"], end=s["end"], speaker=s["speaker"], text=s["text"],
+                            overlap=bool(s.get("overlap"))))
     return out
 
 

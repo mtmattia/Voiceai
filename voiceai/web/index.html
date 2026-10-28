@@ -177,7 +177,7 @@ const views = {
       ${r.feelings && feels(r.feelings) ? `<div class="card"><b>Come sembravano sentirsi</b><div>${JSON.parse(r.feelings).map(x =>
         `<div class="utt"><span class="who">${esc(x.persona)}</span>: ${esc(x.sensazione)} <span class="mut">— ${esc(x.perche)}</span></div>`).join("")}</div></div>` : ""}
       <div class="card"><audio controls preload="none" style="width:100%" id="au"></audio></div>
-      <div class="card">${r.utterances.map(u => `<div class="utt" id="u${u.id}"><span class="mut">${hm(u.ts)}</span>
+      <div class="card">${r.utterances.map(u => `<div class="utt" id="u${u.id}" ${u.overlap ? 'style="opacity:.7" title="parlavano in due: testo meno affidabile"' : ""}><span class="mut">${hm(u.ts)}${u.overlap ? " ⇄" : ""}</span>
         <span class="who ${/\?$|^Sconosciuto/.test(u.speaker) ? "prob" : ""}">${esc(u.speaker)}</span>: ${u.id === hl ? `<mark>${esc(u.text)}</mark>` : esc(u.text)}</div>`).join("") || "<span class='mut'>Nessun parlato.</span>"}</div>`;
     document.getElementById("back").onclick = () => views.day(r.day);
     const rt = document.getElementById("retry"); if (rt) rt.onclick = async () => { await api(`/api/recordings/${id}/retry`, {method: "POST"}); views.rec(id, day); };

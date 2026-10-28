@@ -253,7 +253,7 @@ def create_app(cfg, db: DB, token: str, worker=None):
         r = db.one("SELECT * FROM recordings WHERE id=?", (rid,))
         if not r:
             raise HTTPException(404)
-        r["utterances"] = db.q("""SELECT u.id, u.ts, u.start, u.end, u.text, u.person_id,
+        r["utterances"] = db.q("""SELECT u.id, u.ts, u.start, u.end, u.text, u.person_id, u.overlap,
                                   COALESCE(p.name, u.label) AS speaker FROM utterances u
                                   LEFT JOIN persons p ON p.id=u.person_id WHERE recording_id=? ORDER BY start""",
                                (rid,))

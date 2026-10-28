@@ -71,7 +71,8 @@ CREATE TRIGGER IF NOT EXISTS {_t}_sync_d AFTER DELETE ON {_t} BEGIN
 """
 
 
-MIGRATIONS = [("utterances", "raw", "TEXT"),                       # testo di Whisper prima della correzione LLM
+MIGRATIONS = [("utterances", "raw", "TEXT"),
+              ("utterances", "overlap", "INTEGER DEFAULT 0"),           # tratto con due voci insieme (meno affidabile)                       # testo di Whisper prima della correzione LLM
               ("recordings", "corrected", "INTEGER DEFAULT 0"),
               ("recordings", "feelings", "TEXT"),                    # JSON: come sembrava sentirsi ogni interlocutore
               ("recordings", "summary", "TEXT"),                     # 1-2 frasi: cosa succede, con chi, dove
@@ -206,7 +207,7 @@ class DB:
         "persons": "id, name, confirmed, is_owner, notes, rev, updated_at",
         "memos": "uid, text, descr, kind, due_ts, due_kind, moment, done, done_ts, source, recording_id, created, rev, updated_at",
         "recordings": "id, day, started_at, duration, status, title, keywords, feelings, summary, rev, updated_at",
-        "utterances": "id, recording_id, ts, start, end, label, person_id, text, rev, updated_at",
+        "utterances": "id, recording_id, ts, start, end, label, person_id, text, overlap, rev, updated_at",
         "days": "day, keywords, summary, mood, mood_score, mood_reason, tip, situations, rev, updated_at",
     }
 

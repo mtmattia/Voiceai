@@ -90,14 +90,56 @@ class Engine:
                                 return_char_alignments=False)
         kw = {"num_speakers": num_speakers} if num_speakers else \
              {"min_speakers": d.get("min_speakers"), "max_speakers": d.get("max_speakers")}
-        df, emb = self.dia(audio, return_embeddings=True, **kw)
-        result = whisperx.assign_word_speakers(df, result)
+        full, excl, emb = diarize(self.dia, audio, kw)
+        # parole -> speaker con la diarizzazione "esclusiva" (un solo speaker per istante): attribuzione netta
+        result = whisperx.assign_word_speakers(excl, result)
         talk = {}
-        for _, r in df.iterrows():
+        for _, r in full.iterrows():
             talk[r["speaker"]] = talk.get(r["speaker"], 0.0) + float(r["end"] - r["start"])
+        over = overlaps(full)
         segs = [{"start": float(s["start"]), "end": float(s["end"]), "text": s["text"].strip(),
-                 "speaker": s.get("speaker")} for s in result["segments"] if s.get("text", "").strip()]
+                 "speaker": s.get("speaker"), "overlap": overlap_share(over, s["start"], s["end"]) >= 0.3}
+                for s in result["segments"] if s.get("text", "").strip()]
         return {"segments": segs, "embeddings": emb or {}, "talk": talk, "duration": duration}
+
+
+def _df(annotation):
+    import pandas as pd
+    rows = [(t.start, t.end, spk) for t, _, spk in annotation.itertracks(yield_label=True)]
+    return pd.DataFrame(rows, columns=["start", "end", "speaker"])
+
+
+def diarize(dia, audio, kw):
+    """pyannote 4 (community-1) -> (diarizzazione completa, esclusiva, embedding per speaker)."""
+    import torch
+    out = dia.model({"waveform": torch.from_numpy(audio[None, :]), "sample_rate": SR}, **kw)
+    full = out.speaker_diarization
+    excl = getattr(out, "exclusive_speaker_diarization", None) or full
+    emb = {spk: out.speaker_embeddings[i].tolist() for i, spk in enumerate(full.labels())} \
+        if out.speaker_embeddings is not None else {}
+    return _df(full), _df(excl), emb
+
+
+def overlaps(df):
+    """Intervalli in cui parlano almeno due persone insieme."""
+    ev = sorted([(r.start, 1) for r in df.itertuples()] + [(r.end, -1) for r in df.itertuples()])
+    out, n, t0 = [], 0, None
+    for t, d in ev:
+        n += d
+        if n >= 2 and t0 is None:
+            t0 = t
+        elif n < 2 and t0 is not None:
+            if t > t0:
+                out.append((t0, t))
+            t0 = None
+    return out
+
+
+def overlap_share(over, a, b):
+    """Quota dell'intervallo [a, b] in cui la voce è sovrapposta."""
+    if b <= a:
+        return 0.0
+    return sum(max(0.0, min(b, y) - max(a, x)) for x, y in over) / (b - a)
 
 
 def transcribe(path, cfg, token):

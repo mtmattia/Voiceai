@@ -353,11 +353,16 @@ class ArchiveActivity : Activity() {
         val names = db.personNames()
         val owner = db.ownerName()
         db.transcript(rid).forEach { u ->
-            val t = text(Ui.line("${Ui.hm(u["ts"] as Double)}  ", u["speaker"].toString(), u["text"].toString(), names, owner), 14f)
-                .apply { setPadding(0, dp(4), 0, dp(4)) }
+            val both = u["overlap"] == 1L   // parlavano in due: testo meno affidabile
+            val t = text(Ui.line("${Ui.hm(u["ts"] as Double)}  " + if (both) "⇄ " else "", u["speaker"].toString(),
+                u["text"].toString(), names, owner), 14f)
+                .apply { setPadding(0, dp(4), 0, dp(4)); if (both) alpha = 0.7f }
             if (u["id"] == hl) { t.setBackgroundColor(0xFF5A3B10.toInt()); target = t }
             c.add(t)
         }
+        if (db.transcript(rid).any { it["overlap"] == 1L })
+            body.add(text("⇄ = parlavano in due insieme: il testo può essere incompleto o di entrambi.", 12f, Ui.MUT)
+                .apply { setPadding(dp(4), 0, dp(4), dp(8)) })
         body.add(c)
         target?.let { v -> v.post { (body.parent as? android.widget.ScrollView)?.smoothScrollTo(0, v.top) } }
     }
