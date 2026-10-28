@@ -83,9 +83,17 @@ object Ui {
         return v
     }
 
+    /** Android 15 disegna sotto le barre di sistema: margini pari a barra di stato, navigazione e tastiera. */
+    fun View.insetSafe() = setOnApplyWindowInsetsListener { v, ins ->
+        val b = ins.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime()
+            or android.view.WindowInsets.Type.displayCutout())
+        v.setPadding(b.left, b.top, b.right, b.bottom)
+        ins
+    }
+
     /** Pagina scorrevole standard: titolo + contenuto. Ritorna il contenitore del contenuto. */
     fun Activity.page(title: String, header: LinearLayout.() -> Unit = {}): LinearLayout {
-        val root = column(0).apply { setBackgroundColor(BG) }
+        val root = column(0).apply { setBackgroundColor(BG); insetSafe() }
         val top = row().apply { setPadding(dp(16), dp(12), dp(16), dp(8)) }
         top.add(button("←") { finish() }, marginEnd = 10)
         top.add(text(title, 19f, bold = true), weight = 1f)

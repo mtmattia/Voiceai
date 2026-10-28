@@ -29,6 +29,7 @@ import app.voiceai.Ui.card
 import app.voiceai.Ui.column
 import app.voiceai.Ui.dp
 import app.voiceai.Ui.input
+import app.voiceai.Ui.insetSafe
 import app.voiceai.Ui.row
 import app.voiceai.Ui.text
 import org.json.JSONArray
@@ -53,13 +54,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        val root = FrameLayout(this).apply { setBackgroundColor(Ui.BG) }
+        val root = FrameLayout(this).apply { setBackgroundColor(Ui.BG); insetSafe() }
         val col = column(16)
 
         val top = row()
-        top.add(button("Memo") { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 6)
-        top.add(button("Persone") { open(PersonsActivity::class.java) }, weight = 1f, marginEnd = 6)
-        top.add(button("Archivio") { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 6)
+        // testo su una riga, padding stretto: 5 pulsanti in 360 dp
+        fun tab(s: String, c: Class<*>) = button(s) { open(c) }.apply { isSingleLine = true; setPadding(dp(4), dp(8), dp(4), dp(8)) }
+        top.add(tab("Memo", MemoActivity::class.java), weight = 1f, marginEnd = 6)
+        top.add(tab("Persone", PersonsActivity::class.java), weight = 1f, marginEnd = 6)
+        top.add(tab("Archivio", ArchiveActivity::class.java), weight = 1f, marginEnd = 6)
         top.add(button("🕑") { open(TimelineActivity::class.java) }, marginEnd = 6)
         top.add(button("⚙") { open(SettingsActivity::class.java) })
         col.add(top)
