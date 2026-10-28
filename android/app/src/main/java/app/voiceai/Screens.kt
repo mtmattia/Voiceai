@@ -378,7 +378,7 @@ class TimelineActivity : Activity() {
 
     private fun render() {
         val body = page("Cronologia $day") { add(iconButton("📅") { pickDay() }) }
-        val c = card().apply { add(text("Chiedo al PC…", 14f, Ui.MUT)) }
+        val c = column(0).apply { add(text("Chiedo al PC…", 14f, Ui.MUT)) }
         body.add(c)
         io.execute {
             val r = runCatching { Api(this).timeline(day).getJSONArray("items") }
@@ -386,13 +386,22 @@ class TimelineActivity : Activity() {
                 c.removeAllViews()
                 r.onSuccess { a ->
                     if (a.length() == 0) c.add(text("Niente registrato in questo giorno.", 14f, Ui.MUT))
+                    // linea del tempo: orario piccolo a sinistra, pallino sulla linea, testo a destra
                     for (i in 0 until a.length()) {
                         val e = a.getJSONObject(i)
-                        val color = when (e.optString("kind")) { "ai" -> Ui.ACC; "memo" -> Ui.OK; else -> Ui.FG }
+                        val color = when (e.optString("kind")) { "ai" -> 0xFFB07CF0.toInt(); "memo" -> Ui.OK; else -> Ui.ACC }
+                        val ora = e.optString("ora").split("–")
                         c.add(row().apply {
-                            setPadding(0, dp(5), 0, dp(5))
-                            add(text(e.optString("ora"), 13f, Ui.MUT).apply { minWidth = dp(92) })
-                            add(text(e.optString("text"), 14f, color), weight = 1f)
+                            gravity = android.view.Gravity.TOP
+                            add(column(0).apply {
+                                add(text(ora[0], 11f, Ui.FG).apply { gravity = android.view.Gravity.END; setPadding(0, dp(3), 0, 0) })
+                                if (ora.size > 1) add(text(ora[1], 10f, Ui.MUT).apply { gravity = android.view.Gravity.END })
+                                layoutParams = LinearLayout.LayoutParams(dp(44), -2)
+                            })
+                            add(TimelineDot(this@TimelineActivity, color, i == 0, i == a.length() - 1).apply {
+                                layoutParams = LinearLayout.LayoutParams(dp(28), -1)
+                            })
+                            add(text(e.optString("text"), 14f).apply { setPadding(0, dp(2), 0, dp(18)) }, weight = 1f)
                             if (e.has("recording_id")) setOnClickListener {
                                 startActivity(android.content.Intent(this@TimelineActivity, ArchiveActivity::class.java)
                                     .putExtra("rec", e.getLong("recording_id")))

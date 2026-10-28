@@ -16,16 +16,15 @@ SYS = "Estrai promemoria da trascrizioni in italiano. Rispondi SOLO con JSON val
 PROMPT = """Registrazione di {owner}, iniziata {when} ({weekday}).
 Estrai due liste separate.
 
-1. "todo": cose che {owner} deve fare: impegni che prende ("devo stampare i documenti", "ricordami di
-prendere il gatto") o richieste che altri gli fanno e che accetta. Ignora chiacchiere, opinioni, cose già fatte.
-2. "agenda": appuntamenti e incontri a un'ora precisa (riunioni, visite, consegne, "domani alle 9 dal
-cliente", "stasera ceno da mamma"). Solo se c'è un giorno o un orario detto nel testo.
+1. "todo": cose che {owner} deve fare: impegni che prende o richieste che altri gli fanno e che accetta.
+Ignora chiacchiere, opinioni, cose già fatte, frasi generiche ("fare delle cose").
+2. "agenda": appuntamenti e incontri con un giorno o un orario detto nel testo (riunioni, visite, consegne).
+Usa SOLO ciò che c'è nella trascrizione: nessun esempio, nessuna voce inventata. Meglio zero voci che voci vaghe.
 
 Per ogni voce:
-"titolo": breve, max 6 parole, all'infinito per i todo ("Stampare i documenti"), nome dell'evento per l'agenda
-("Cena da mamma");
+"titolo": breve, max 6 parole, all'infinito per i todo, nome dell'evento per l'agenda;
 "descrizione": 1-2 frasi con i dettagli utili presi dal testo: cosa esattamente, per chi, chi l'ha chiesto,
-dove, materiali, perché. Niente che non sia nel testo;
+dove, materiali, perché. Se il testo non dà dettagli: stringa vuota;
 "quando": data e ora ISO (AAAA-MM-GGTHH:MM) SOLO se c'è un riferimento esplicito ("alle 12", "domani alle 9",
 "lunedì"), calcolato rispetto all'inizio registrazione; altrimenti null (per l'agenda è obbligatorio);
 "momento" (solo todo): se non c'è orario, il momento più probabile: mattina, pranzo, pomeriggio, sera, o null.
@@ -123,6 +122,8 @@ def extract(db, cfg, rid):
             if not title:
                 continue
             descr = str(m.get("descrizione") or "").strip()[:1000]
+            if re.match(r"(non specificat|nessun dettagli|nessuna descrizion|n/?a\b)", descr.lower()):
+                descr = ""
             due = _parse_when(m.get("quando"))
             if due and due < rec["started_at"] - 3600:
                 due = None

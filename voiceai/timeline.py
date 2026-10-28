@@ -36,7 +36,7 @@ def build(db, day):
     own = db.owner()
     owner = own["name"] if own else "Io"
     rows = db.q("""SELECT u.ts, u.end - u.start AS dur, u.recording_id,
-                          COALESCE(p.name, u.label, 'Sconosciuto') AS who, p.is_owner
+                          COALESCE(p.name, 'qualcuno') AS who, p.is_owner
                    FROM utterances u JOIN recordings r ON r.id = u.recording_id
                    LEFT JOIN persons p ON p.id = u.person_id
                    WHERE r.day = ? ORDER BY u.ts""", (day,))

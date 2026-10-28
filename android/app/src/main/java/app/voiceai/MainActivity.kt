@@ -56,7 +56,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        val root = FrameLayout(this).apply { setBackgroundColor(Ui.BG); insetSafe() }
+        val root = FrameLayout(this).apply { background = bgDrawable; insetSafe() }
         val col = column(16)
 
         // intestazione: nome + stato a sinistra, impostazioni a destra
@@ -67,7 +67,7 @@ class MainActivity : Activity() {
                 setSpan(android.text.style.ForegroundColorSpan(Ui.ACC), 0, 1, 0)
             }
         })
-        status = text("", 12f, Ui.MUT)
+        status = text("", 12f, 0xB3FFFFFF.toInt())
         titles.add(status)
         head.add(titles, weight = 1f)
         head.add(iconButton("👥") { open(PersonsActivity::class.java) }, marginEnd = 8)
@@ -86,10 +86,10 @@ class MainActivity : Activity() {
         // ricerca: funziona anche durante la registrazione (il servizio è indipendente dalla schermata)
         val sr = row().apply { setPadding(0, dp(14), 0, dp(8)) }
         val pill = row().apply {
-            background = bg(0xFF0B0D11.toInt(), dp(24).toFloat(), Ui.LINE); setPadding(dp(14), 0, dp(4), 0)
+            background = Ui.glass(dp(24).toFloat()); setPadding(dp(14), 0, dp(4), 0)
         }
         query = input("Cerca o fai una domanda…").apply {
-            background = null; setPadding(0, dp(12), 0, dp(12))
+            background = null; setPadding(0, dp(12), 0, dp(12)); setHintTextColor(0xB3FFFFFF.toInt())
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setOnEditorActionListener { _, _, _ -> search(); true }
         }
@@ -108,7 +108,7 @@ class MainActivity : Activity() {
         col.add(resultsScroll, weight = 1.4f)
 
         wave = WaveformView(this)
-        col.add(wave.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(8) } })
+        col.add(wave.apply { layoutParams = LinearLayout.LayoutParams(-1, dp(130)).apply { topMargin = dp(8) } })
         recBtn = RecordButton(this).apply { setOnClickListener { toggle() } }
         val btnWrap = FrameLayout(this)
         btnWrap.addView(recBtn, FrameLayout.LayoutParams(dp(170), dp(170), Gravity.CENTER))
@@ -117,7 +117,8 @@ class MainActivity : Activity() {
         col.add(timer)
         val keep = CheckBox(this).apply {
             text = "Schermo acceso in registrazione (diventa nero dopo ${prefs.blackAfterSec} s)"
-            setTextColor(Ui.MUT); textSize = 12f; isChecked = prefs.keepScreenOn
+            setTextColor(0xB3FFFFFF.toInt()); textSize = 12f; isChecked = prefs.keepScreenOn
+            buttonTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             setOnCheckedChangeListener { _, v -> prefs.keepScreenOn = v; applyScreenFlag() }
         }
         col.add(keep)
@@ -206,22 +207,43 @@ class MainActivity : Activity() {
     private val tick = object : Runnable {
         override fun run() {
             val rec = RecorderService.running
+            if (rec != wave.recording) fadeTo(rec)
             wave.recording = rec; recBtn.recording = rec
             if (rec) {
                 val a = RecorderService.amplitude()
                 wave.push(a); recBtn.level = (a / 12000f).coerceIn(0f, 1f)
                 val s = (System.currentTimeMillis() - RecorderService.startedAtMs) / 1000
                 timer.text = "● REC  %d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60)
-                timer.setTextColor(Ui.ACC)
+                timer.setTextColor(Color.WHITE)
                 if (prefs.keepScreenOn && System.currentTimeMillis() - lastTouch > prefs.blackAfterSec * 1000L) setBlack(true)
             } else {
                 if (tickN % 3 == 0L) wave.idle()
-                timer.text = "Tocca per registrare"; timer.setTextColor(Ui.MUT)
+                timer.text = "Tocca per registrare"; timer.setTextColor(0xCCFFFFFF.toInt())
                 setBlack(false)
             }
             if (tickN % 40 == 0L) updateStatus()
             tickN++
             ui.postDelayed(this, 50)
+        }
+    }
+
+    // sfondo: verde a riposo, rosso in registrazione (dissolvenza)
+    private val IDLE = intArrayOf(0xFF06231A.toInt(), 0xFF0C4A35.toInt(), 0xFF12805A.toInt())
+    private val REC = intArrayOf(0xFF2A060C.toInt(), 0xFF6E1222.toInt(), 0xFFC4263F.toInt())
+    private val bgDrawable = android.graphics.drawable.GradientDrawable(
+        android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, IDLE.clone())
+
+    private fun fadeTo(rec: Boolean) {
+        val from = if (rec) IDLE else REC
+        val to = if (rec) REC else IDLE
+        val ev = android.animation.ArgbEvaluator()
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 600
+            addUpdateListener { a ->
+                val f = a.animatedValue as Float
+                bgDrawable.colors = IntArray(3) { ev.evaluate(f, from[it], to[it]) as Int }
+            }
+            start()
         }
     }
 

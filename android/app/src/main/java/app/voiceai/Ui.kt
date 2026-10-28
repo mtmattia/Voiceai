@@ -52,12 +52,26 @@ object Ui {
     fun gradient(a: Int, b: Int, radius: Float) = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(a, b))
         .apply { cornerRadius = radius }
 
+    /** Vetro: riempimento bianco traslucido, bordo chiaro, riflesso in alto (liquid glass + Material). */
+    fun glass(radius: Float, tint: Int? = null, strong: Boolean = false): android.graphics.drawable.Drawable {
+        val fill = GradientDrawable().apply {
+            cornerRadius = radius
+            setColor(tint?.let { Color.argb(if (strong) 150 else 70, Color.red(it), Color.green(it), Color.blue(it)) }
+                ?: Color.argb(if (strong) 235 else 34, 255, 255, 255))
+            setStroke(2, Color.argb(if (strong) 0 else 80, 255, 255, 255))
+        }
+        val shine = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(Color.argb(if (strong) 0 else 46, 255, 255, 255), Color.TRANSPARENT)).apply { cornerRadius = radius }
+        return ripple(android.graphics.drawable.LayerDrawable(arrayOf(fill, shine)))
+    }
+
     fun Context.button(s: String, primary: Boolean = false, onClick: () -> Unit) = Button(this).apply {
         text = s; isAllCaps = false; textSize = 14f; stateListAnimator = null
-        setTextColor(if (primary) Color.WHITE else FG)
+        // primario: vetro pieno (bianco) con testo scuro, come un "filled button" Material
+        setTextColor(if (primary) 0xFF101418.toInt() else FG)
         if (primary) setTypeface(typeface, Typeface.BOLD)
-        background = ripple(if (primary) gradient(ACC, 0xFFE0306E.toInt(), dp(22).toFloat())
-                            else bg(CARD, dp(22).toFloat(), LINE))
+        background = glass(dp(22).toFloat(), strong = primary)
+        elevation = if (primary) dp(3).toFloat() else 0f
         setPadding(dp(14), dp(6), dp(14), dp(6)); minHeight = 0; minimumHeight = 0
         setOnClickListener { onClick() }
     }
@@ -66,7 +80,7 @@ object Ui {
     fun Context.tile(icon: String, label: String, tint: Int, onClick: () -> Unit) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
         setPadding(dp(4), dp(12), dp(4), dp(10))
-        background = ripple(gradient(blend(tint, 0.28f), blend(tint, 0.10f), dp(18).toFloat()).apply { setStroke(2, blend(tint, 0.45f)) })
+        background = glass(dp(20).toFloat())
         isClickable = true; setOnClickListener { onClick() }
         addView(TextView(context).apply { text = icon; textSize = 22f; gravity = Gravity.CENTER })
         addView(TextView(context).apply {
@@ -78,7 +92,7 @@ object Ui {
     /** Pulsante tondo con sola icona. */
     fun Context.iconButton(icon: String, onClick: () -> Unit) = TextView(this).apply {
         text = icon; textSize = 18f; gravity = Gravity.CENTER
-        background = ripple(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(CARD); setStroke(2, LINE) })
+        background = glass(dp(21).toFloat())
         isClickable = true; setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
     }

@@ -56,6 +56,7 @@ def recording_keywords(db, cfg, rid):
              "perche": str(f.get("perche", ""))[:300]}
             for f in d.get("sensazioni", []) if isinstance(d.get("sensazioni"), list)
             if isinstance(f, dict) and f.get("persona") in who and f.get("sensazione")
+            and not str(f["persona"]).startswith("SPEAKER_")
             and not (owner and f.get("persona") == owner["name"])]
     with db.tx() as c:
         c.execute("UPDATE recordings SET title=?, keywords=?, feelings=? WHERE id=?",
