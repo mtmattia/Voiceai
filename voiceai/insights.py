@@ -66,13 +66,16 @@ def recording_keywords(db, cfg, rid):
                    json.dumps(feel, ensure_ascii=False), str(d.get("sintesi") or "")[:600], rid))
 
 
-SITUATIONS = """Questi sono i blocchi registrati nella giornata di {owner}, in ordine: orario, titolo, persone, sintesi.
-Raggruppa i blocchi consecutivi che fanno parte della stessa situazione (stessa attività, stesse persone, stesso
-argomento) e scrivi il resoconto della giornata come elenco di situazioni.
-Per ciascuna: "dalle" e "alle" (HH:MM, dai blocchi), "titolo" (max 6 parole), "persone" (nomi come nel testo,
-senza {owner}), "contesto" (dove/che tipo di situazione, 2-5 parole), "sintesi" (2-3 frasi concrete: cosa è
-successo, cosa si è deciso o chiesto, cosa resta aperto). Usa SOLO le informazioni dei blocchi.
-Formato: {{"situazioni": [{{"dalle": "09:27", "alle": "10:15", "titolo": "...", "persone": ["..."],
+SITUATIONS = """Questi sono i blocchi da 5 minuti registrati in un'ora della giornata di {owner}, in ordine: orario,
+titolo, persone, sintesi. Scrivi il resoconto di quest'ora come elenco di situazioni: unisci SOLO i blocchi
+consecutivi sullo stesso argomento concreto (lo stesso lavoro, lo stesso cliente, la stessa telefonata).
+Una situazione dura di solito 5-30 minuti: in un'ora ce ne sono di solito 2-5.
+Per ciascuna: "dalle" e "alle" (HH:MM, dai blocchi), "titolo" (max 6 parole, specifico: "Scritte per i carabinieri",
+non "Discussione su progetti"), "persone" (nomi come nel testo, senza {owner}), "contesto" (2-4 parole: laboratorio,
+telefonata, cliente al banco, pausa...), "sintesi" (1-3 frasi con i fatti concreti dei blocchi: oggetti, clienti,
+problemi, decisioni, cose rimaste aperte). Vietate le frasi generiche ("discutono di progetti", "risolvono problemi").
+Usa SOLO le informazioni dei blocchi.
+Formato: {{"situazioni": [{{"dalle": "09:30", "alle": "09:45", "titolo": "...", "persone": ["..."],
 "contesto": "...", "sintesi": "..."}}]}}
 
 BLOCCHI:
@@ -80,28 +83,43 @@ BLOCCHI:
 
 
 def build_situations(db, cfg, day):
-    """Resoconto per situazioni: blocchi consecutivi raggruppati dall'LLM (usa le sintesi per blocco, è leggero)."""
+    """Resoconto per situazioni, un'ora alla volta (prompt piccoli: il 7B resta veloce e preciso).
+    Le ore già fatte e senza blocchi nuovi si riusano da days.situations_hours."""
     recs = db.q("""SELECT r.id, r.started_at, r.duration, r.title, r.summary,
                    (SELECT GROUP_CONCAT(DISTINCT p.name) FROM utterances u JOIN persons p ON p.id=u.person_id
                     WHERE u.recording_id=r.id AND p.is_owner=0) AS who
                    FROM recordings r WHERE r.day=? AND r.status='done' AND r.keywords IS NOT NULL
                    ORDER BY r.started_at""", (day,))
     owner = db.owner()
-    lines = [f"{time.strftime('%H:%M', time.localtime(r['started_at']))}-"
-             f"{time.strftime('%H:%M', time.localtime(r['started_at'] + (r['duration'] or 0)))} | {r['title'] or ''} | "
-             f"{r['who'] or '-'} | {r['summary'] or ''}" for r in recs]
-    sits = []
-    if lines:
-        d = _json(cfg, SITUATIONS.format(owner=owner["name"] if owner else "l'utente",
-                                         body="\n".join(lines)[: cfg["llm"]["block_max_chars"]]))
+    row = db.one("SELECT situations_hours FROM days WHERE day=?", (day,)) or {}
+    try:
+        cache = json.loads(row.get("situations_hours") or "{}")
+    except ValueError:
+        cache = {}
+    hours = {}
+    for r in recs:
+        hours.setdefault(time.strftime("%H", time.localtime(r["started_at"])), []).append(r)
+    out = {}
+    for h, rs in sorted(hours.items()):
+        key = ",".join(str(r["id"]) for r in rs)
+        if cache.get(h, {}).get("key") == key:
+            out[h] = cache[h]
+            continue
+        lines = [f"{time.strftime('%H:%M', time.localtime(r['started_at']))}-"
+                 f"{time.strftime('%H:%M', time.localtime(r['started_at'] + (r['duration'] or 0)))} | {r['title'] or ''} | "
+                 f"{r['who'] or '-'} | {r['summary'] or ''}" for r in rs]
+        d = _json(cfg, SITUATIONS.format(owner=owner["name"] if owner else "l'utente", body="\n".join(lines)))
+        sits = []
         for x in d.get("situazioni", []) if isinstance(d.get("situazioni"), list) else []:
             if isinstance(x, dict) and str(x.get("titolo", "")).strip():
-                sits.append({k: (x.get(k) if k == "persone" and isinstance(x.get(k), list) else str(x.get(k) or "")[:600])
-                             for k in ("dalle", "alle", "titolo", "persone", "contesto", "sintesi")})
-                sits[-1]["persone"] = [str(p)[:60] for p in sits[-1]["persone"] or []][:8]
-    db.q("UPDATE days SET situations=?, situations_n=? WHERE day=?",
-         (json.dumps(sits, ensure_ascii=False), len(recs), day))
-    log.info("giornata %s: %d situazioni da %d blocchi", day, len(sits), len(recs))
+                sits.append({k: str(x.get(k) or "")[:600] for k in ("dalle", "alle", "titolo", "contesto", "sintesi")})
+                pers = x.get("persone") if isinstance(x.get("persone"), list) else []
+                sits[-1]["persone"] = [str(p)[:60] for p in pers if not (owner and str(p) == owner["name"])][:8]
+        out[h] = {"key": key, "sits": sits}
+    flat = [x for h in sorted(out) for x in out[h]["sits"]]
+    db.q("UPDATE days SET situations=?, situations_n=?, situations_hours=? WHERE day=?",
+         (json.dumps(flat, ensure_ascii=False), len(recs), json.dumps(out, ensure_ascii=False), day))
+    log.info("giornata %s: %d situazioni da %d blocchi", day, len(flat), len(recs))
 
 
 def _sample(lines, max_chars):

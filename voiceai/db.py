@@ -78,6 +78,7 @@ MIGRATIONS = [("utterances", "raw", "TEXT"),
               ("recordings", "summary", "TEXT"),                     # 1-2 frasi: cosa succede, con chi, dove
               ("days", "situations", "TEXT"),                        # JSON: resoconto per situazioni
               ("days", "situations_n", "INTEGER DEFAULT 0"),         # blocchi già inclusi nel resoconto
+              ("days", "situations_hours", "TEXT"),                  # cache per ora: si rifà solo l'ora cambiata
               ("memos", "descr", "TEXT DEFAULT ''"),                 # text = titolo breve, descr = dettagli
               ("memos", "kind", "TEXT DEFAULT 'todo'")]              # todo | agenda (appuntamento con data e ora)
 

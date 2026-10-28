@@ -120,7 +120,7 @@ def test_full_flow(env, monkeypatch):
                                "sensazioni": [{"persona": "Marco", "sensazione": "tranquillo", "perche": "risponde sereno"},
                                               {"persona": "Mattia", "sensazione": "stanco", "perche": "lo dice"},
                                               {"persona": "Pippo", "sensazione": "felice", "perche": "inventato"}]})
-        if "Raggruppa i blocchi" in user:
+        if "elenco di situazioni" in user:
             assert "Fornitore in ritardo" in user and "Ritardo della consegna" in user
             return json.dumps({"situazioni": [{"dalle": "09:00", "alle": "09:05", "titolo": "Fornitore",
                                                "persone": ["Marco"], "contesto": "telefonata", "sintesi": "Consegna slitta."}]})
