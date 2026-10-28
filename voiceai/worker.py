@@ -1,5 +1,6 @@
 """Coda di lavoro: prima i blocchi audio (GPU per ASR), poi a riposo i lavori LLM (GPU per Ollama)."""
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -72,6 +73,14 @@ class Worker(threading.Thread):
                 process_recording(db, cfg, self.engine, rec)
             except Exception as e:
                 log.exception("blocco %s fallito", rec["id"])
+                if "CUDA" in str(e) or "cuda" in type(e).__name__.lower():
+                    # dopo un errore CUDA (es. OOM) il contesto GPU del processo è rotto: il blocco resta
+                    # in coda e il processo esce, systemd lo riavvia pulito
+                    n = int(rec["error"][4:]) + 1 if (rec["error"] or "").startswith("gpu:") else 1
+                    if n < 3:
+                        db.q("UPDATE recordings SET error=? WHERE id=?", (f"gpu:{n}", rec["id"]))
+                        log.error("errore GPU: riavvio il processo, il blocco %s resta in coda (%d/3)", rec["id"], n)
+                        os._exit(75)
                 db.q("UPDATE recordings SET status='error', error=? WHERE id=?", (str(e)[:2000], rec["id"]))
             self.last_asr = time.time()
             return True
