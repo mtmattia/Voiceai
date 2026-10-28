@@ -371,3 +371,12 @@ def test_correzione_llm(env, monkeypatch):
     assert u[1]["raw"] is None                     # proposta ma non accettata alla rilettura
     assert db.search("fornitore")                 # indice di ricerca aggiornato
     assert db.one("SELECT corrected FROM recordings WHERE id=1")["corrected"] == 1
+
+
+def test_pull_chiave_riusata(tmp_path):
+    db = DB(tmp_path / "v.db")
+    pid = db.new_person("Primo")
+    db.delete_person(pid)
+    assert db.new_person("Secondo") == pid           # SQLite ricicla l'id
+    out = db.pull(0)
+    assert [p["name"] for p in out["persons"]] == ["Secondo"] and out["deleted"] == []

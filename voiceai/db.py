@@ -207,6 +207,8 @@ class DB:
         "days": "day, keywords, summary, mood, mood_score, mood_reason, tip, rev, updated_at",
     }
 
+    KEYS = {"persons": "id", "memos": "uid", "recordings": "id", "utterances": "id", "days": "day"}
+
     def pull(self, since, limit=2000):
         rows = []
         for t, cols in self.PULL_COLS.items():
@@ -217,10 +219,14 @@ class DB:
         rows.sort(key=lambda x: x[2]["rev"])
         more = len(rows) > limit
         rows = rows[:limit]
+        last = rows[-1][2]["rev"] if rows else since
+        # una chiave cancellata e poi riusata (gli id interi di SQLite si riciclano) non va cancellata sul
+        # telefono: nella stessa pagina la riga nuova vince sulla lapide più vecchia
+        live = {(t, str(r[self.KEYS[t]])): r["rev"] for kind, t, r in rows if kind == "t"}
+        rows = [x for x in rows if x[0] == "t" or live.get((x[1], str(x[2]["key"])), -1) < x[2]["rev"]]
         out = {t: [] for t in self.PULL_COLS} | {"deleted": []}
         for kind, t, r in rows:
             (out["deleted"] if kind == "d" else out[t]).append(r)
-        last = rows[-1][2]["rev"] if rows else since
         out.update(rev=last, more=more)
         return out
 
