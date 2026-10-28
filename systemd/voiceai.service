@@ -1,0 +1,14 @@
+[Unit]
+Description=VoiceAi - watcher trascrizione riunioni
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/voiceai/env
+ExecStart=%h/Progetti/voiceai/.venv/bin/voiceai ascolta
+Restart=on-failure
+RestartSec=30
+Nice=5
+
+[Install]
+WantedBy=default.target

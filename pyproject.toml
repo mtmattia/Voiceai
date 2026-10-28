@@ -1,0 +1,29 @@
+[project]
+name = "voiceai"
+version = "0.1.0"
+description = "Trascrizione locale di riunioni: WhisperX + pyannote + impronte vocali + verbale via Ollama"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "whisperx==3.8.6",
+    "pyyaml>=6",
+    "requests>=2.31",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[project.scripts]
+voiceai = "voiceai.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["voiceai"]
+
+[tool.setuptools.package-data]
+voiceai = ["web/*.html"]

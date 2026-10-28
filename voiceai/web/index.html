@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceAi</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#262a33;--fg:#e8e9ec;--mut:#9aa0ab;--acc:#ff4d5a;--ok:#4cc38a;--warn:#e5b454}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;z-index:2}
+header b{margin-right:auto;font-size:17px}
+nav button,button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+nav button.on{border-color:var(--acc);color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+main{max-width:900px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mut{color:var(--mut);font-size:13px}.tag{display:inline-block;background:#232733;border-radius:99px;padding:2px 9px;margin:2px;font-size:12px}
+input,select{background:#0b0d11;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;min-width:0}
+input.grow{flex:1}
+.mood{font-size:22px;font-weight:600}.tip{border-left:3px solid var(--ok);padding-left:10px;margin-top:8px}
+.memo{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}.memo:last-child{border:0}
+.memo input[type=checkbox]{width:22px;height:22px;margin-top:2px;accent-color:var(--ok)}
+.due{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:4px}.due.esplicita{background:var(--acc);color:#fff}
+.due.ipotizzata{border:1px dashed var(--warn);color:var(--warn)}.due.late{background:#7a1d24;color:#fff}
+.ans{white-space:pre-wrap}
+.utt{padding:4px 0;border-bottom:1px solid var(--line)}.utt:last-child{border:0}
+.who{font-weight:600}.prob{color:var(--warn)}
+.md h2,.md h3{font-size:15px;margin:12px 0 4px}.md table{border-collapse:collapse}.md td,.md th{border:1px solid var(--line);padding:3px 6px}
+mark{background:#5a3b10;color:inherit}
+</style>
+</head>
+<body>
+<header><b>VoiceAi</b>
+<nav class="row"><button data-v="ask">Chiedi</button><button data-v="memo">Memo</button><button data-v="days">Giornate</button><button data-v="persons">Persone</button>
+<button data-v="search">Cerca</button><button data-v="status">Stato</button></nav></header>
+<main id="m"></main>
+<script>
+const qs = new URLSearchParams(location.search);
+if (qs.get("token")) { try { localStorage.setItem("tok", qs.get("token")); } catch (e) {} history.replaceState(null, "", "/" + location.hash); }
+let TOK = qs.get("token") || (() => { try { return localStorage.getItem("tok") || ""; } catch (e) { return ""; } })();
+const M = document.getElementById("m");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hm = ts => new Date(ts * 1000).toLocaleTimeString("it-IT", {hour: "2-digit", minute: "2-digit"});
+const dur = s => `${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m`;
+const kws = j => { try { return JSON.parse(j || "[]"); } catch (e) { return []; } };
+const MOODS = {"-2": "😣", "-1": "😕", "0": "😐", "1": "🙂", "2": "😄"};
+
+async function api(path, opt = {}) {
+  const r = await fetch(path, {...opt, headers: {"Authorization": "Bearer " + TOK, "Content-Type": "application/json", ...(opt.headers || {})}});
+  if (r.status === 401) { login(); throw new Error("401"); }
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+function login() {
+  M.innerHTML = `<div class="card"><p>Token del server</p><div class="row"><input id="t" class="grow" type="password"><button class="pri" id="go">Entra</button></div></div>`;
+  document.getElementById("go").onclick = () => { TOK = document.getElementById("t").value.trim(); try { localStorage.setItem("tok", TOK); } catch (e) {} show("days"); };
+}
+// markdown minimale per il verbale (titoli, elenchi, tabelle, grassetto)
+function md(s) {
+  const lines = esc(s).split("\n"); let out = "", inT = false, inL = false;
+  for (const l of lines) {
+    if (/^\|/.test(l)) { if (/^\|[\s:|-]+\|$/.test(l)) continue; if (!inT) { out += "<table>"; inT = true; }
+      out += "<tr>" + l.split("|").slice(1, -1).map(c => `<td>${c.trim()}</td>`).join("") + "</tr>"; continue; }
+    if (inT) { out += "</table>"; inT = false; }
+    if (/^\s*- /.test(l)) { if (!inL) { out += "<ul>"; inL = true; } out += `<li>${l.replace(/^\s*- /, "")}</li>`; continue; }
+    if (inL) { out += "</ul>"; inL = false; }
+    const h = l.match(/^(#{1,3}) (.*)/);
+    out += h ? `<h${h[1].length + 1}>${h[2]}</h${h[1].length + 1}>` : (l.trim() ? `<p>${l}</p>` : "");
+  }
+  return (out + (inT ? "</table>" : "") + (inL ? "</ul>" : "")).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+}
+
+const dueTxt = m => { if (!m.due_ts) return ""; const d = new Date(m.due_ts * 1000), now = new Date();
+  const same = d.toDateString() === now.toDateString(), tom = new Date(now.getTime() + 864e5).toDateString() === d.toDateString();
+  const t = d.toLocaleTimeString("it-IT", {hour: "2-digit", minute: "2-digit"});
+  const lbl = (same ? "oggi " : tom ? "domani " : d.toLocaleDateString("it-IT", {weekday: "short", day: "numeric", month: "numeric"}) + " ") + t;
+  const late = !m.done && d < now ? " late" : "";
+  return `<span class="due ${m.due_kind || ""}${late}" title="${m.due_kind === "ipotizzata" ? "orario stimato dai tuoi ritmi" : "orario detto esplicitamente"}">${m.due_kind === "ipotizzata" ? "~" : ""}${lbl}</span>`; };
+
+const views = {
+  async ask() {
+    M.innerHTML = `<div class="card"><div class="row"><input id="q" class="grow" placeholder="Es. cosa ha detto Marco sul fornitore?"><button class="pri" id="go">Chiedi</button></div>
+      <div class="mut" style="margin-top:6px">Risponde usando solo le registrazioni già elaborate.</div></div><div id="res"></div>`;
+    const go = async () => { const q = document.getElementById("q").value.trim(); if (!q) return;
+      const R = document.getElementById("res"); R.innerHTML = `<div class="card mut">Sto cercando… (se il PC sta trascrivendo, attende la fine del blocco)</div>`;
+      try { const r = await api("/api/ask", {method: "POST", body: JSON.stringify({q})});
+        R.innerHTML = `<div class="card ans">${esc(r.risposta)}</div>` + (r.fonti.length ? `<div class="card"><b>Fonti</b>${r.fonti.map(u => `<div class="utt" data-rec="${u.recording_id}" data-u="${u.id}" style="cursor:pointer">
+          <span class="mut">${esc(u.day)} ${hm(u.ts)}</span> <span class="who">${esc(u.speaker)}</span>: ${esc(u.text)}</div>`).join("")}</div>` : "");
+        R.querySelectorAll("[data-rec]").forEach(e => e.onclick = () => views.rec(+e.dataset.rec, null, +e.dataset.u));
+      } catch (e) { R.innerHTML = `<div class="card">Errore: ${esc(e.message)}</div>`; } };
+    document.getElementById("go").onclick = go;
+    document.getElementById("q").onkeydown = e => { if (e.key === "Enter") go(); };
+  },
+  async memo() {
+    const [open, done] = await Promise.all([api("/api/memos"), api("/api/memos?done=1&limit=20")]);
+    const row = m => `<div class="memo" data-m="${m.id}"><input type="checkbox" ${m.done ? "checked" : ""}>
+      <div style="flex:1">${esc(m.text)} ${dueTxt(m)}<div class="mut">${m.source === "manuale" ? "aggiunto a mano" : "dalla registrazione del " + new Date(m.created * 1000).toLocaleString("it-IT", {day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit"})}</div></div>
+      <button class="ed" title="Orario">🕑</button><button class="dl" title="Elimina">✕</button></div>`;
+    M.innerHTML = `<div class="card row"><input id="nt" class="grow" placeholder="Nuovo memo…"><input id="nd" type="datetime-local"><button class="pri" id="add">Aggiungi</button></div>
+      <div class="card"><b>Da fare</b>${open.map(row).join("") || "<div class='mut'>Niente in sospeso.</div>"}</div>
+      <p class="mut"><span class="due esplicita">ora</span> detta esplicitamente · <span class="due ipotizzata">~ora</span> stimata dai tuoi ritmi (impara da quando spunti i memo)</p>
+      ${done.length ? `<div class="card"><b>Fatti di recente</b>${done.map(row).join("")}</div>` : ""}`;
+    document.getElementById("add").onclick = async () => { const t = document.getElementById("nt").value.trim(); if (!t) return;
+      const d = document.getElementById("nd").value; await api("/api/memos", {method: "POST", body: JSON.stringify({text: t, due_ts: d ? new Date(d).getTime() / 1000 : null})}); views.memo(); };
+    M.querySelectorAll("[data-m]").forEach(c => { const id = +c.dataset.m;
+      c.querySelector("input").onchange = async e => { await api("/api/memos/" + id, {method: "PATCH", body: JSON.stringify({done: e.target.checked})}); views.memo(); };
+      c.querySelector(".dl").onclick = async () => { await api("/api/memos/" + id, {method: "DELETE"}); views.memo(); };
+      c.querySelector(".ed").onclick = async () => { const v = prompt("Scadenza (AAAA-MM-GG HH:MM)"); if (!v) return;
+        const t = new Date(v.replace(" ", "T")); if (isNaN(t)) return alert("Formato non valido");
+        await api("/api/memos/" + id, {method: "PATCH", body: JSON.stringify({due_ts: t.getTime() / 1000})}); views.memo(); };
+    });
+  },
+  async days() {
+    const ds = await api("/api/days");
+    M.innerHTML = ds.length ? ds.map(d => `<div class="card" data-day="${esc(d.day)}" style="cursor:pointer">
+      <div class="row"><b>${esc(d.day)}</b><span class="mut">${d.n_rec} blocchi · ${dur(d.seconds)}</span>
+      <span style="margin-left:auto">${d.mood_score != null ? MOODS[d.mood_score] : ""} ${esc(d.mood || (d.dirty ? "in elaborazione…" : ""))}</span></div>
+      <div>${kws(d.keywords).slice(0, 8).map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div></div>`).join("")
+      : `<div class="card mut">Nessuna registrazione ancora.</div>`;
+    M.querySelectorAll("[data-day]").forEach(e => e.onclick = () => views.day(e.dataset.day));
+  },
+  async day(day) {
+    const d = await api("/api/days/" + day);
+    M.innerHTML = `<div class="row" style="margin-bottom:10px"><button id="back">← Giornate</button><b>${esc(day)}</b>
+      <button id="rb" style="margin-left:auto">Rigenera riassunto</button></div>
+      ${d.mood ? `<div class="card"><div class="mood">${MOODS[d.mood_score] || ""} ${esc(d.mood)}</div>
+        <div class="mut">${esc(d.mood_reason)}</div>${d.tip ? `<div class="tip">💡 ${esc(d.tip)}</div>` : ""}</div>` : ""}
+      ${d.summary ? `<div class="card md">${md(d.summary)}</div>` : `<div class="card mut">Riassunto non ancora pronto (parte dopo un'ora senza nuovi blocchi).</div>`}
+      ${d.recordings.map(r => `<div class="card" data-rec="${r.id}" style="cursor:pointer"><div class="row"><b>${hm(r.started_at)}</b>
+        <span>${esc(r.title || "")}</span><span class="mut" style="margin-left:auto">${r.status}${r.duration ? " · " + Math.round(r.duration / 60) + " min" : ""}</span></div>
+        <div>${kws(r.keywords).map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div>
+        ${r.error ? `<div class="mut">${esc(r.error)}</div>` : ""}</div>`).join("")}`;
+    document.getElementById("back").onclick = () => show("days");
+    document.getElementById("rb").onclick = async () => { await api(`/api/days/${day}/rebuild`, {method: "POST"}); alert("In coda: pronto tra qualche minuto."); };
+    M.querySelectorAll("[data-rec]").forEach(e => e.onclick = () => views.rec(+e.dataset.rec, day));
+  },
+  async rec(id, day, hl) {
+    const r = await api("/api/recordings/" + id);
+    M.innerHTML = `<div class="row" style="margin-bottom:10px"><button id="back">← ${esc(r.day)}</button><b>${hm(r.started_at)} ${esc(r.title || "")}</b>
+      ${r.status === "error" ? `<button id="retry">Riprova</button>` : ""}</div>
+      <div class="card"><audio controls preload="none" style="width:100%" id="au"></audio></div>
+      <div class="card">${r.utterances.map(u => `<div class="utt" id="u${u.id}"><span class="mut">${hm(u.ts)}</span>
+        <span class="who ${/\?$|^Sconosciuto/.test(u.speaker) ? "prob" : ""}">${esc(u.speaker)}</span>: ${u.id === hl ? `<mark>${esc(u.text)}</mark>` : esc(u.text)}</div>`).join("") || "<span class='mut'>Nessun parlato.</span>"}</div>`;
+    document.getElementById("back").onclick = () => views.day(r.day);
+    const rt = document.getElementById("retry"); if (rt) rt.onclick = async () => { await api(`/api/recordings/${id}/retry`, {method: "POST"}); views.rec(id, day); };
+    // audio protetto da token: lo scarico come blob solo se richiesto
+    document.getElementById("au").onplay = async function () {
+      if (this.src) return; const b = await fetch(`/api/recordings/${id}/audio`, {headers: {"Authorization": "Bearer " + TOK}});
+      if (b.ok) { this.src = URL.createObjectURL(await b.blob()); this.play(); } };
+    if (hl) document.getElementById("u" + hl)?.scrollIntoView({block: "center"});
+  },
+  async persons() {
+    const ps = await api("/api/persons");
+    const opts = ps.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+    M.innerHTML = `<p class="mut">"Nome?" = nome probabile dedotto dal testo. Rinominare conferma la persona. Se la stessa voce compare due volte, unisci.</p>` +
+      ps.map(p => `<div class="card" data-p="${p.id}"><div class="row">
+        <input class="grow nm" value="${esc(p.name)}"><button class="sv pri">Salva</button>
+        ${p.confirmed ? "" : `<span class="tag prob">da confermare</span>`}${p.is_owner ? `<span class="tag">⭐ io</span>` : ""}</div>
+        <div class="mut">${Math.round(p.talk_sec / 60)} min di parlato · ${p.n_prints} impronte${p.last_seen ? " · ultima volta " + new Date(p.last_seen * 1000).toLocaleDateString("it-IT") : ""}
+        ${p.name_votes.length ? " · indizi: " + p.name_votes.map(v => esc(v.name) + " (" + v.votes + ")").join(", ") : ""}</div>
+        <div class="row" style="margin-top:8px">${p.is_owner ? "" : `<button class="ow">Sono io</button>`}<button class="ex">Frasi</button>
+        <select class="mt"><option value="">Unisci a…</option>${opts}</select><button class="del" style="margin-left:auto">Elimina</button></div>
+        <div class="xs"></div></div>`).join("");
+    M.querySelectorAll("[data-p]").forEach(c => {
+      const id = +c.dataset.p, $ = s => c.querySelector(s);
+      $(".sv").onclick = async () => { await api("/api/persons/" + id, {method: "PATCH", body: JSON.stringify({name: $(".nm").value})}); views.persons(); };
+      $(".nm").onkeydown = e => { if (e.key === "Enter") $(".sv").click(); };
+      if ($(".ow")) $(".ow").onclick = async () => { await api("/api/persons/" + id, {method: "PATCH", body: JSON.stringify({is_owner: true})}); views.persons(); };
+      $(".ex").onclick = async () => { const us = await api(`/api/persons/${id}/utterances?limit=15`);
+        $(".xs").innerHTML = us.map(u => `<div class="utt"><span class="mut">${new Date(u.ts * 1000).toLocaleString("it-IT")}</span> ${esc(u.text)}</div>`).join("") || "<span class='mut'>Nessuna frase.</span>"; };
+      $(".mt").onchange = async e => { const to = +e.target.value; if (!to || to === id) return;
+        if (confirm("Unire questa persona all'altra? Le frasi e le impronte vengono spostate.")) {
+          await api(`/api/persons/${id}/merge`, {method: "POST", body: JSON.stringify({into: to})}); } views.persons(); };
+      $(".del").onclick = async () => { if (confirm("Eliminare persona e impronte? Le frasi restano senza nome.")) {
+        await api("/api/persons/" + id, {method: "DELETE"}); views.persons(); } };
+    });
+  },
+  async search() {
+    M.innerHTML = `<div class="card row"><input id="q" class="grow" placeholder="Cerca parole, persone, argomenti…"><button class="pri" id="go">Cerca</button></div><div id="res"></div>`;
+    const go = async () => {
+      const q = document.getElementById("q").value.trim(); if (!q) return;
+      const r = await api("/api/search?q=" + encodeURIComponent(q));
+      document.getElementById("res").innerHTML =
+        (r.registrazioni.length ? `<div class="card"><b>Registrazioni per parola chiave</b>${r.registrazioni.map(x => `<div class="utt" data-rec="${x.id}" style="cursor:pointer">
+          <span class="mut">${esc(x.day)} ${hm(x.started_at)}</span> ${esc(x.title || "")} ${kws(x.keywords).map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div>`).join("")}</div>` : "") +
+        `<div class="card"><b>Frasi</b>${r.frasi.map(u => `<div class="utt" data-rec="${u.recording_id}" data-u="${u.id}" style="cursor:pointer">
+          <span class="mut">${esc(u.day)} ${hm(u.ts)}</span> <span class="who">${esc(u.speaker)}</span>: ${esc(u.text)}</div>`).join("") || "<div class='mut'>Nessun risultato.</div>"}</div>`;
+      document.querySelectorAll("#res [data-rec]").forEach(e => e.onclick = () => views.rec(+e.dataset.rec, null, e.dataset.u ? +e.dataset.u : null));
+    };
+    document.getElementById("go").onclick = go;
+    document.getElementById("q").onkeydown = e => { if (e.key === "Enter") go(); };
+  },
+  async status() {
+    const s = await api("/api/status");
+    M.innerHTML = `<div class="card"><b>Coda</b><div>${Object.entries(s.recordings).map(([k, v]) => `<span class="tag">${esc(k)}: ${v}</span>`).join("") || "vuota"}</div>
+      <div class="mut">Modelli trascrizione in VRAM: ${s.asr_loaded ? "sì" : "no"}</div></div>`;
+  },
+};
+function show(v) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  views[v]().catch(e => { if (e.message !== "401") M.innerHTML = `<div class="card">Errore: ${esc(e.message)}</div>`; });
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.v));
+const start = location.hash.slice(1);
+TOK ? show(views[start] && start !== "day" && start !== "rec" ? start : "days") : login();
+</script>
+</body>
+</html>

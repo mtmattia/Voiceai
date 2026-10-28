@@ -1,0 +1,14 @@
+[Unit]
+Description=VoiceAi - server app Android + shell web + elaborazione a blocchi
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/voiceai/env
+ExecStart=%h/Progetti/voiceai/.venv/bin/voiceai server
+Restart=on-failure
+RestartSec=30
+Nice=5
+
+[Install]
+WantedBy=default.target

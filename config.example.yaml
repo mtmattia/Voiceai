@@ -1,0 +1,68 @@
+# Copia in ~/.config/voiceai/config.yaml (o passa --config)
+
+paths:
+  inbox: ~/Sync/riunioni/inbox          # cartella sincronizzata dal telefono (Syncthing)
+  output: ~/Sync/riunioni/verbali       # una sottocartella per riunione
+  archive: ~/Sync/riunioni/archivio     # audio elaborati
+  voiceprints: ~/.local/share/voiceai/voiceprints
+
+hf_token_env: HF_TOKEN   # nome della variabile d'ambiente col token Hugging Face
+
+asr:
+  model: large-v3-turbo
+  compute_type: int8      # int8 su 6 GB VRAM; float16 se avanza memoria
+  batch_size: 8           # abbassa a 4 se va in OOM
+  language: it
+  # Nomi e termini ricorrenti: aiutano Whisper a scriverli giusti
+  initial_prompt: "Riunione di lavoro. Partecipanti: Marco, Giulia, Luca, Sara, Paolo."
+
+diarization:
+  model: pyannote/speaker-diarization-community-1
+  min_speakers: 2         # non forzare troppo alto: crea speaker fantasma
+  max_speakers: 12
+
+speakers:
+  threshold: 0.50         # cosine minima impronta->speaker. Tarare con i report (meeting.json)
+  # Nomi possibili per la deduzione da testo (vocativi, "sono Marco")
+  known_names: [Marco, Giulia, Luca, Sara, Paolo]
+  min_votes: 2            # indizi minimi per assegnare un nome dal testo
+  guest_label: Ospite
+
+llm:
+  enabled: true
+  url: http://localhost:11434
+  model: qwen2.5:7b-instruct-q4_K_M
+  num_ctx: 8192
+  temperature: 0.2
+  block_minutes: 20       # riassunto a blocchi
+  block_max_chars: 14000  # ~4k token per blocco
+  name_inference: true    # fallback LLM per speaker senza impronta
+
+watch:
+  poll_seconds: 30
+  stable_seconds: 120     # file fermo da N secondi = upload finito
+  extensions: [.m4a, .mp3, .wav, .ogg, .opus, .flac, .aac, .mp4, .webm, .amr, .3gp]
+
+# --- modalità registrazione continua (app Android -> server) ---
+server:
+  host: 0.0.0.0           # meglio l'IP Tailscale del PC (tailscale ip -4)
+  port: 8765
+  token_env: VOICEAI_TOKEN  # stesso token da inserire nell'app
+
+storage:
+  data_dir: ~/.local/share/voiceai   # db SQLite + audio ricevuti
+  keep_audio: true        # false = cancella l'audio dopo la trascrizione
+
+people:
+  threshold: 0.50         # cosine minima per dire "è la stessa persona"
+  oversplit_margin: 0.10  # due etichette dello stesso blocco sulla stessa persona solo se > soglia+margine
+  update_margin: 0.10     # match molto sicuro -> aggiunge l'impronta (profilo che si adatta)
+  min_update_sec: 15
+  min_new_person_sec: 10  # sotto i 10 s di parlato non crea una persona nuova
+  max_prints: 20          # impronte automatiche per persona (le manuali restano sempre)
+  min_name_votes: 3       # indizi dal testo prima di proporre un nome "Marco?"
+
+worker:
+  poll_seconds: 10
+  llm_after_idle_sec: 120 # lavori LLM solo dopo 2 min senza blocchi audio in coda
+  day_idle_minutes: 60    # riassunto/umore della giornata dopo 1 h senza nuovi blocchi
