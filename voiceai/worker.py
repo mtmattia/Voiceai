@@ -16,7 +16,7 @@ def known_names(db, cfg):
 
 def process_recording(db, cfg, engine, rec):
     r = engine.run(rec["path"])
-    segs = text.fill_speakers(r["segments"])
+    segs = text.fill_speakers(text.drop_hallucinations(r["segments"]))
     trns = text.turns(segs)
     pmap, _ = people.assign(db, r["embeddings"], r["talk"], cfg, source=f"rec{rec['id']}")
     votes = names.rule_votes(trns, known_names(db, cfg))

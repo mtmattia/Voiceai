@@ -168,3 +168,9 @@ def test_process_end_to_end(tmp_path, monkeypatch):
     assert "Luca:** Io aggiungo" in (out / "trascrizione.md").read_text()
     with pytest.raises(SystemExit):
         pipeline.learn(cfg, out, "SPEAKER_99", "X")
+
+
+def test_allucinazioni():
+    segs = [{"text": "Grazie."}, {"text": "Grazie. Grazie a tutti."}, {"text": "Grazie, Marco, ci vediamo."},
+            {"text": "Sottotitoli creati dalla comunità Amara.org"}, {"text": "Il preventivo è pronto."}]
+    assert [s["text"] for s in text.drop_hallucinations(segs)] == ["Grazie, Marco, ci vediamo.", "Il preventivo è pronto."]

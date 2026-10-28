@@ -1,4 +1,21 @@
 """Turni di parola, timestamp e blocchi per l'LLM."""
+import re
+
+# Frasi che Whisper inventa nei silenzi e nel rumore (dai sottotitoli su cui è addestrato)
+HALLUCINATIONS = {"grazie", "grazie a tutti", "grazie mille", "grazie per la visione", "grazie per l'attenzione",
+                  "iscriviti al canale", "ciao a tutti"}
+_SPLIT = re.compile(r"[.!?…]+")
+
+
+def is_hallucination(t):
+    if t.strip().lower().startswith("sottotitoli"):
+        return True
+    parts = [p.strip(" ,").lower() for p in _SPLIT.split(t) if p.strip(" ,")]
+    return bool(parts) and all(p in HALLUCINATIONS for p in parts)
+
+
+def drop_hallucinations(segs):
+    return [s for s in segs if not is_hallucination(s.get("text", ""))]
 
 
 def ts(sec):
