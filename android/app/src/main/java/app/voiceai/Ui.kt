@@ -45,13 +45,46 @@ object Ui {
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
+    /** Sfondo con effetto al tocco. */
+    fun ripple(d: android.graphics.drawable.Drawable) =
+        android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x33FFFFFF), d, null)
+
+    fun gradient(a: Int, b: Int, radius: Float) = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(a, b))
+        .apply { cornerRadius = radius }
+
     fun Context.button(s: String, primary: Boolean = false, onClick: () -> Unit) = Button(this).apply {
-        text = s; isAllCaps = false; textSize = 14f
+        text = s; isAllCaps = false; textSize = 14f; stateListAnimator = null
         setTextColor(if (primary) Color.WHITE else FG)
-        background = bg(if (primary) ACC else CARD, 20f, if (primary) null else LINE)
+        if (primary) setTypeface(typeface, Typeface.BOLD)
+        background = ripple(if (primary) gradient(ACC, 0xFFE0306E.toInt(), dp(22).toFloat())
+                            else bg(CARD, dp(22).toFloat(), LINE))
         setPadding(dp(14), dp(6), dp(14), dp(6)); minHeight = 0; minimumHeight = 0
         setOnClickListener { onClick() }
     }
+
+    /** Riquadro di navigazione: icona grande + etichetta, sfondo sfumato. */
+    fun Context.tile(icon: String, label: String, tint: Int, onClick: () -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+        setPadding(dp(4), dp(12), dp(4), dp(10))
+        background = ripple(gradient(blend(tint, 0.28f), blend(tint, 0.10f), dp(18).toFloat()).apply { setStroke(2, blend(tint, 0.45f)) })
+        isClickable = true; setOnClickListener { onClick() }
+        addView(TextView(context).apply { text = icon; textSize = 22f; gravity = Gravity.CENTER })
+        addView(TextView(context).apply {
+            text = label; textSize = 12f; setTextColor(FG); gravity = Gravity.CENTER; isSingleLine = true
+            setPadding(0, dp(4), 0, 0)
+        })
+    }
+
+    /** Pulsante tondo con sola icona. */
+    fun Context.iconButton(icon: String, onClick: () -> Unit) = TextView(this).apply {
+        text = icon; textSize = 18f; gravity = Gravity.CENTER
+        background = ripple(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(CARD); setStroke(2, LINE) })
+        isClickable = true; setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
+    }
+
+    /** Colore mescolato col nero dello sfondo (f = quanto colore). */
+    fun blend(c: Int, f: Float) = Color.rgb((Color.red(c) * f).toInt(), (Color.green(c) * f).toInt(), (Color.blue(c) * f).toInt())
 
     fun Context.input(hint: String, value: String = "", type: Int = InputType.TYPE_CLASS_TEXT) = EditText(this).apply {
         this.hint = hint; setText(value); inputType = type; textSize = 15f
@@ -75,7 +108,9 @@ object Ui {
     }
 
     fun LinearLayout.add(v: View, weight: Float = 0f, marginEnd: Int = 0): View {
-        val lp = if (orientation == LinearLayout.HORIZONTAL)
+        val own = v.layoutParams as? LinearLayout.LayoutParams
+        val lp = if (own != null && weight == 0f) LinearLayout.LayoutParams(own.width, own.height)
+        else if (orientation == LinearLayout.HORIZONTAL)
             LinearLayout.LayoutParams(if (weight > 0) 0 else ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, weight)
         else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (weight > 0) 0 else ViewGroup.LayoutParams.WRAP_CONTENT, weight)
         lp.marginEnd = context.dp(marginEnd)
@@ -95,7 +130,7 @@ object Ui {
     fun Activity.page(title: String, header: LinearLayout.() -> Unit = {}): LinearLayout {
         val root = column(0).apply { setBackgroundColor(BG); insetSafe() }
         val top = row().apply { setPadding(dp(16), dp(12), dp(16), dp(8)) }
-        top.add(button("←") { finish() }, marginEnd = 10)
+        top.add(iconButton("←") { finish() }, marginEnd = 10)
         top.add(text(title, 19f, bold = true), weight = 1f)
         top.header()
         root.add(top)

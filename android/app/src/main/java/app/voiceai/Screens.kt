@@ -19,6 +19,7 @@ import app.voiceai.Ui.button
 import app.voiceai.Ui.card
 import app.voiceai.Ui.column
 import app.voiceai.Ui.dp
+import app.voiceai.Ui.iconButton
 import app.voiceai.Ui.input
 import app.voiceai.Ui.page
 import app.voiceai.Ui.row
@@ -38,7 +39,7 @@ class MemoActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        body = page("Memo") { add(button("↻") { SyncWorker.now(this@MemoActivity); render() }) }
+        body = page("Memo") { add(iconButton("↻") { SyncWorker.now(this@MemoActivity); render() }) }
         render()
     }
 
@@ -210,7 +211,7 @@ class ArchiveActivity : Activity() {
     }
 
     private fun showDays() {
-        val body = page("Archivio") { add(button("↻") { SyncWorker.now(this@ArchiveActivity); recreate() }) }
+        val body = page("Archivio") { add(iconButton("↻") { SyncWorker.now(this@ArchiveActivity); recreate() }) }
         val ds = db.days()
         if (ds.isEmpty()) body.add(text("Ancora niente: le giornate arrivano dopo la sincronizzazione col PC.", 14f, Ui.MUT))
         ds.forEach { d ->
@@ -319,7 +320,7 @@ class TimelineActivity : Activity() {
     }
 
     private fun render() {
-        val body = page("Cronologia $day") { add(button("📅") { pickDay() }) }
+        val body = page("Cronologia $day") { add(iconButton("📅") { pickDay() }) }
         val c = card().apply { add(text("Chiedo al PC…", 14f, Ui.MUT)) }
         body.add(c)
         io.execute {
@@ -341,7 +342,10 @@ class TimelineActivity : Activity() {
                             }
                         })
                     }
-                }.onFailure { c.add(text("PC non raggiungibile (${it.message}).", 14f, Ui.WARN)) }
+                }.onFailure {
+                    c.add(text(if (Prefs(this).server.isBlank()) "Imposta server e token in ⚙ per vedere la cronologia."
+                               else "PC non raggiungibile (${it.message}).", 14f, Ui.WARN))
+                }
             }
         }
     }

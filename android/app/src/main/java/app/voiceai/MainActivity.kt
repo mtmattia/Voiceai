@@ -28,10 +28,12 @@ import app.voiceai.Ui.button
 import app.voiceai.Ui.card
 import app.voiceai.Ui.column
 import app.voiceai.Ui.dp
+import app.voiceai.Ui.iconButton
 import app.voiceai.Ui.input
 import app.voiceai.Ui.insetSafe
 import app.voiceai.Ui.row
 import app.voiceai.Ui.text
+import app.voiceai.Ui.tile
 import org.json.JSONArray
 import java.util.concurrent.Executors
 
@@ -57,27 +59,43 @@ class MainActivity : Activity() {
         val root = FrameLayout(this).apply { setBackgroundColor(Ui.BG); insetSafe() }
         val col = column(16)
 
-        val top = row()
-        // testo su una riga, padding stretto: 5 pulsanti in 360 dp
-        fun tab(s: String, c: Class<*>) = button(s) { open(c) }.apply { isSingleLine = true; setPadding(dp(4), dp(8), dp(4), dp(8)) }
-        top.add(tab("Memo", MemoActivity::class.java), weight = 1f, marginEnd = 6)
-        top.add(tab("Persone", PersonsActivity::class.java), weight = 1f, marginEnd = 6)
-        top.add(tab("Archivio", ArchiveActivity::class.java), weight = 1f, marginEnd = 6)
-        top.add(button("🕑") { open(TimelineActivity::class.java) }, marginEnd = 6)
-        top.add(button("⚙") { open(SettingsActivity::class.java) })
-        col.add(top)
-        status = text("", 12f, Ui.MUT).apply { setPadding(0, dp(6), 0, 0) }
-        col.add(status)
+        // intestazione: nome + stato a sinistra, impostazioni a destra
+        val head = row()
+        val titles = column(0)
+        titles.add(text("● VoiceAi", 22f, bold = true).apply {
+            text = android.text.SpannableString("● VoiceAi").apply {
+                setSpan(android.text.style.ForegroundColorSpan(Ui.ACC), 0, 1, 0)
+            }
+        })
+        status = text("", 12f, Ui.MUT)
+        titles.add(status)
+        head.add(titles, weight = 1f)
+        head.add(iconButton("⚙") { open(SettingsActivity::class.java) })
+        col.add(head)
+
+        val nav = row().apply { setPadding(0, dp(14), 0, 0) }
+        nav.add(tile("📝", "Memo", 0xFFE5B454.toInt()) { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile("👥", "Persone", 0xFF4CC38A.toInt()) { open(PersonsActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile("🗂️", "Archivio", 0xFF5B8DEF.toInt()) { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile("🕑", "Cronologia", 0xFFB07CF0.toInt()) { open(TimelineActivity::class.java) }, weight = 1f)
+        col.add(nav)
 
         // ricerca: funziona anche durante la registrazione (il servizio è indipendente dalla schermata)
-        val sr = row().apply { setPadding(0, dp(12), 0, dp(8)) }
-        query = input("Cerca: stampa, pannello, gatto… o fai una domanda").apply {
+        val sr = row().apply { setPadding(0, dp(14), 0, dp(8)) }
+        val pill = row().apply {
+            background = bg(0xFF0B0D11.toInt(), dp(24).toFloat(), Ui.LINE); setPadding(dp(14), 0, dp(4), 0)
+        }
+        query = input("Cerca o fai una domanda…").apply {
+            background = null; setPadding(0, dp(12), 0, dp(12))
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setOnEditorActionListener { _, _, _ -> search(); true }
         }
-        sr.add(query, weight = 1f, marginEnd = 6)
-        sr.add(button("Cerca") { search() }, marginEnd = 6)
-        sr.add(button("Chiedi", primary = true) { ask() })
+        pill.add(query, weight = 1f)
+        pill.add(text("🔍", 18f).apply {
+            setPadding(dp(10), dp(8), dp(10), dp(8)); isClickable = true; setOnClickListener { search() }
+        })
+        sr.add(pill, weight = 1f, marginEnd = 8)
+        sr.add(button("✨ Chiedi", primary = true) { ask() })
         col.add(sr)
 
         topSpace = Space(this)
