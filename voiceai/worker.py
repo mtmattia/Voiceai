@@ -5,7 +5,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import gpu, insights, llm, memos, names, people, text
+from . import correct, gpu, insights, llm, memos, names, people, text
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def process_recording(db, cfg, engine, rec):
                       "VALUES(?,?,?,?,?,?,?)",
                       [(rec["id"], rec["started_at"] + t["start"], t["start"], t["end"], t["speaker"],
                         pmap.get(t["speaker"]), t["text"]) for t in trns])
-        c.execute("UPDATE recordings SET status='done', error=NULL, duration=? WHERE id=?",
+        c.execute("UPDATE recordings SET status='done', error=NULL, corrected=0, duration=? WHERE id=?",
                   (r["duration"], rec["id"]))
         c.execute("""INSERT INTO days(day, dirty, last_activity) VALUES(?,1,?)
                      ON CONFLICT(day) DO UPDATE SET dirty=1, last_activity=excluded.last_activity""",
@@ -87,7 +87,18 @@ class Worker(threading.Thread):
 
         if not cfg["llm"]["enabled"] or time.time() - self.last_asr < w["llm_after_idle_sec"]:
             return False
-        # priorità: memo (hanno scadenze) -> parole chiave -> giornata
+        # priorità: correzione del testo (lo usano tutti gli altri) -> memo (hanno scadenze) -> parole chiave -> giornata
+        fix = cfg["llm"].get("correct", True) and db.one(
+            "SELECT id FROM recordings WHERE status='done' AND corrected=0 ORDER BY started_at LIMIT 1")
+        if fix:
+            self.shared.acquire()
+            self.engine.unload()
+            try:
+                correct.recording(db, cfg, fix["id"])
+            except Exception:
+                log.exception("correzione LLM fallita")
+                db.q("UPDATE recordings SET corrected=1 WHERE id=?", (fix["id"],))
+            return True
         mem = db.one("SELECT id FROM recordings WHERE status='done' AND memos_done=0 ORDER BY started_at LIMIT 1")
         kw = db.one("SELECT id FROM recordings WHERE status='done' AND keywords IS NULL LIMIT 1")
         day = db.one("SELECT day FROM days WHERE dirty=1 AND last_activity < ? ORDER BY day LIMIT 1",

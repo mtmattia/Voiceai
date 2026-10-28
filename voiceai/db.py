@@ -31,6 +31,9 @@ CREATE TRIGGER IF NOT EXISTS utt_ai AFTER INSERT ON utterances BEGIN
   INSERT INTO utt_fts(rowid, text) VALUES (new.id, new.text); END;
 CREATE TRIGGER IF NOT EXISTS utt_ad AFTER DELETE ON utterances BEGIN
   INSERT INTO utt_fts(utt_fts, rowid, text) VALUES ('delete', old.id, old.text); END;
+CREATE TRIGGER IF NOT EXISTS utt_au AFTER UPDATE OF text ON utterances BEGIN
+  INSERT INTO utt_fts(utt_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  INSERT INTO utt_fts(rowid, text) VALUES (new.id, new.text); END;
 CREATE TABLE IF NOT EXISTS days(
   day TEXT PRIMARY KEY, dirty INTEGER DEFAULT 1, last_activity REAL, keywords TEXT,
   summary TEXT, mood TEXT, mood_score INTEGER, mood_reason TEXT, tip TEXT, updated REAL,
@@ -68,6 +71,10 @@ CREATE TRIGGER IF NOT EXISTS {_t}_sync_d AFTER DELETE ON {_t} BEGIN
 """
 
 
+MIGRATIONS = [("utterances", "raw", "TEXT"),                       # testo di Whisper prima della correzione LLM
+              ("recordings", "corrected", "INTEGER DEFAULT 0")]
+
+
 class DB:
     def __init__(self, path):
         self.path = Path(path)
@@ -75,6 +82,10 @@ class DB:
         self.lock = threading.RLock()
         with self.tx() as c:
             c.executescript(SCHEMA)
+            # colonne aggiunte dopo: archivi già esistenti
+            for tbl, col, decl in MIGRATIONS:
+                if col not in {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}:
+                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {decl}")
 
     @contextmanager
     def tx(self):

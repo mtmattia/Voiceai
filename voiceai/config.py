@@ -22,7 +22,7 @@ DEFAULTS = {
     "speakers": {"threshold": 0.50, "known_names": [], "min_votes": 2, "guest_label": "Ospite"},
     "llm": {"enabled": True, "url": "http://localhost:11434", "model": "qwen2.5:7b-instruct-q4_K_M",
             "num_ctx": 8192, "temperature": 0.2, "block_minutes": 20, "block_max_chars": 14000,
-            "name_inference": True},
+            "name_inference": True, "correct": True},
     "server": {"host": "0.0.0.0", "port": 8765, "token_env": "VOICEAI_TOKEN"},
     "storage": {"data_dir": "~/.local/share/voiceai", "keep_audio": True},
     "people": {"threshold": 0.50, "oversplit_margin": 0.10, "update_margin": 0.10, "min_update_sec": 15,

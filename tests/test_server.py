@@ -184,7 +184,8 @@ def test_memo_extract_explicit_guess_and_learn(env, monkeypatch):
                       {"testo": "", "quando": None}, "spazzatura"]}
     # llm è un unico modulo: una sola funzione finta che risponde in base al prompt
     monkeypatch.setattr(memos.llm, "chat", lambda c_, s_, u, **k: json.dumps(reply) if "ricordarsi" in u else "{}")
-    w.step()
+    w.step()   # correzione del testo (nessuna correzione proposta)
+    w.step()   # memo
     ms = {m["text"]: m for m in c.get("/api/memos", headers=H).json()}
     assert set(ms) == {"Stampare i documenti", "Prendere il gatto"}
     assert ms["Stampare i documenti"]["due_kind"] == "esplicita"
@@ -334,3 +335,28 @@ def test_abbinamento(env):
     for _ in range(5):
         c.post("/api/pair", json={"code": "999999"})
     assert c.post("/api/pair", json={"code": "123456"}).status_code == 403   # bloccato dopo 5 errori
+
+
+def test_correzione_llm(env, monkeypatch):
+    from voiceai import correct
+    cfg, db, w, c = env
+    up(c, BLOCK1, 0, time.time())
+    assert w.step()
+    calls = []
+
+    def fake_chat(cfg_, sys, user, json_mode=False):
+        calls.append(user)
+        if "Rileggi" in user:
+            assert "fornitore" in user and "Mandami" not in user   # la riscrittura è già scartata dal filtro
+            return '{"accetta": [1]}'
+        return json.dumps({"correzioni": [{"n": 1, "testo": "Marco, hai sentito il fornitore? "},   # uguale: ignorata
+                                          {"n": 1, "testo": "Marco, hai sentito il fornitore."},
+                                          {"n": 2, "testo": "Sì, la consegna slitta a venerdì prossimo."},
+                                          {"n": 4, "testo": "Mandami tutto quello che hai, grazie mille davvero!"}]})
+    monkeypatch.setattr(correct.llm, "chat", fake_chat)
+    assert correct.recording(db, cfg, 1) == 1
+    u = db.q("SELECT text, raw FROM utterances ORDER BY start")
+    assert u[0] == {"text": "Marco, hai sentito il fornitore.", "raw": "Marco, hai sentito il fornitore?"}
+    assert u[1]["raw"] is None                     # proposta ma non accettata alla rilettura
+    assert db.search("fornitore")                 # indice di ricerca aggiornato
+    assert db.one("SELECT corrected FROM recordings WHERE id=1")["corrected"] == 1
