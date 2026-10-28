@@ -42,6 +42,8 @@ class Pair(BaseModel):
 
 class MemoIn(BaseModel):
     text: Optional[str] = None
+    descr: Optional[str] = None
+    kind: Optional[str] = None
     done: Optional[bool] = None
     due_ts: Optional[float] = None
 
@@ -174,7 +176,7 @@ def create_app(cfg, db: DB, token: str, worker=None):
     @app.get("/api/days/{day}", dependencies=A)
     def day(day: str):
         d = db.one("SELECT * FROM days WHERE day=?", (day,)) or {"day": day}
-        d["recordings"] = db.q("""SELECT id, started_at, duration, status, error, title, keywords
+        d["recordings"] = db.q("""SELECT id, started_at, duration, status, error, title, keywords, feelings
                                   FROM recordings WHERE day=? ORDER BY started_at""", (day,))
         return d
 
@@ -246,17 +248,19 @@ def create_app(cfg, db: DB, token: str, worker=None):
 
     # --- memo ---
     @app.get("/api/memos", dependencies=A)
-    def memo_list(done: int = 0, limit: int = 200):
+    def memo_list(done: int = 0, limit: int = 200, kind: str = "todo"):
         order = "done_ts DESC" if done else "due_ts IS NULL, due_ts, created"
-        return db.q(f"SELECT * FROM memos WHERE done=? ORDER BY {order} LIMIT ?", (int(bool(done)), min(limit, 1000)))
+        return db.q(f"SELECT * FROM memos WHERE done=? AND kind=? ORDER BY {order} LIMIT ?",
+                    (int(bool(done)), "agenda" if kind == "agenda" else "todo", min(limit, 1000)))
 
     @app.post("/api/memos", dependencies=A)
     def memo_add(m: MemoIn):
         from . import memos
         if not (m.text or "").strip():
             raise HTTPException(400, "testo vuoto")
-        mid = memos.add(db, m.text.strip()[:200], due_ts=m.due_ts,
-                        due_kind="esplicita" if m.due_ts else None, source="manuale")
+        mid = memos.add(db, m.text.strip()[:200], due_ts=m.due_ts, due_kind="esplicita" if m.due_ts else None,
+                        source="manuale", descr=(m.descr or "").strip()[:1000],
+                        kind="agenda" if m.kind == "agenda" else "todo")
         return db.one("SELECT * FROM memos WHERE id=?", (mid,)) if mid else {"duplicate": True}
 
     @app.patch("/api/memos/{mid}", dependencies=A)
@@ -266,6 +270,8 @@ def create_app(cfg, db: DB, token: str, worker=None):
         with db.tx() as c:
             if m.text is not None:
                 c.execute("UPDATE memos SET text=? WHERE id=?", (m.text.strip()[:200], mid))
+            if m.descr is not None:
+                c.execute("UPDATE memos SET descr=? WHERE id=?", (m.descr.strip()[:1000], mid))
             if m.due_ts is not None:
                 c.execute("UPDATE memos SET due_ts=?, due_kind='esplicita', notified=0 WHERE id=?", (m.due_ts, mid))
             if m.done is not None:

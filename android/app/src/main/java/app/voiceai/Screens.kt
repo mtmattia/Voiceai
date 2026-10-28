@@ -28,6 +28,12 @@ import org.json.JSONArray
 import java.util.Calendar
 import java.util.concurrent.Executors
 
+/** recordings.feelings (JSON) -> [(persona, sensazione, perché)] */
+private fun feelings(s: Any?): List<Triple<String, String, String>> = runCatching {
+    val a = JSONArray(s as? String ?: "[]")
+    (0 until a.length()).map { a.getJSONObject(it).let { o -> Triple(o.optString("persona"), o.optString("sensazione"), o.optString("perche")) } }
+}.getOrDefault(emptyList())
+
 private fun kws(s: Any?): String = runCatching {
     val a = JSONArray(s as? String ?: "[]"); (0 until a.length()).joinToString(" · ") { a.getString(it) }
 }.getOrDefault("")
@@ -36,10 +42,12 @@ private fun kws(s: Any?): String = runCatching {
 class MemoActivity : Activity() {
     private lateinit var body: LinearLayout
     private val db by lazy { LocalDb.get(this) }
+    private val kind by lazy { if (intent.getStringExtra("kind") == "agenda") "agenda" else "todo" }
+    private val agenda get() = kind == "agenda"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        body = page("Memo") { add(iconButton("↻") { SyncWorker.now(this@MemoActivity); render() }) }
+        body = page(if (agenda) "Agenda" else "Da fare") { add(iconButton("↻") { SyncWorker.now(this@MemoActivity); render() }) }
         render()
     }
 
@@ -49,27 +57,42 @@ class MemoActivity : Activity() {
 
     private fun render() {
         body.removeAllViews()
-        val newRow = row().apply { setPadding(0, 0, 0, dp(10)) }
-        val t = input("Nuovo memo… (es. prendere il gatto)")
-        newRow.add(t, weight = 1f, marginEnd = 6)
-        newRow.add(button("+ ora") { pickDue { ts -> if (t.text.isNotBlank()) { db.addMemo(t.text.toString(), ts); changed() } } }, marginEnd = 6)
-        newRow.add(button("Aggiungi", primary = true) { if (t.text.isNotBlank()) { db.addMemo(t.text.toString(), null); changed() } })
-        body.add(newRow)
+        val form = card()
+        val t = input(if (agenda) "Nuovo appuntamento… (es. cena da mamma)" else "Nuova cosa da fare… (es. prendere il gatto)")
+        val dsc = input("Descrizione (facoltativa)")
+        form.add(t)
+        form.add(dsc.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8) })
+        val btns = row().apply { setPadding(0, dp(10), 0, 0) }
+        fun save(ts: Double?) { if (t.text.isNotBlank()) { db.addMemo(t.text.toString(), ts, dsc.text.toString(), kind); changed() } }
+        btns.add(button(if (agenda) "📅 Data e ora" else "+ ora") { pickDue { ts -> save(ts) } }, marginEnd = 8)
+        if (!agenda) btns.add(button("Aggiungi", primary = true) { save(null) })
+        form.add(btns)
+        body.add(form)
 
-        val open = db.openMemos()
+        val open = db.openMemos(kind)
         body.add(card().apply {
-            add(text("Da fare", 15f, bold = true))
-            if (open.isEmpty()) add(text("Niente in sospeso.", 14f, Ui.MUT))
-            open.forEach { add(memoRow(it)) }
+            add(text(if (agenda) "In programma" else "Da fare", 15f, bold = true))
+            if (open.isEmpty()) add(text(if (agenda) "Nessun appuntamento." else "Niente in sospeso.", 14f, Ui.MUT))
+            var last = ""
+            open.forEach { m ->
+                if (agenda) {   // raggruppata per giorno
+                    val d = (m["due_ts"] as? Double)?.let {
+                        java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.ITALY).format(java.util.Date((it * 1000).toLong()))
+                    } ?: "senza data"
+                    if (d != last) { add(text(d.uppercase(), 11f, Ui.MUT, bold = true).apply { setPadding(0, dp(10), 0, 0) }); last = d }
+                }
+                add(memoRow(m))
+            }
         })
-        body.add(row().apply {
+        if (!agenda) body.add(row().apply {
+            setPadding(0, dp(4), 0, 0)
             add(dueChip("ora", "esplicita", false), marginEnd = 6); add(text("detta esplicitamente   ", 12f, Ui.MUT))
             add(dueChip("~ora", "ipotizzata", false), marginEnd = 6); add(text("stimata dai tuoi ritmi", 12f, Ui.MUT))
         })
-        val done = db.doneMemos()
+        val done = db.doneMemos(kind)
         if (done.isNotEmpty()) body.add(card().apply {
             (layoutParams as LinearLayout.LayoutParams).topMargin = dp(10)
-            add(text("Fatti di recente", 15f, bold = true))
+            add(text(if (agenda) "Passati" else "Fatti di recente", 15f, bold = true))
             done.forEach { add(memoRow(it)) }
         })
     }
@@ -92,7 +115,8 @@ class MemoActivity : Activity() {
             setOnCheckedChangeListener { _, v -> db.setMemoDone(uid, v); changed() }
         })
         val info = column(0)
-        info.add(text(m["text"] as String, 15f, if (done) Ui.MUT else Ui.FG))
+        info.add(text(m["text"] as String, 15f, if (done) Ui.MUT else Ui.FG, bold = !done))
+        (m["descr"] as? String)?.takeIf { it.isNotBlank() }?.let { info.add(text(it, 13f, Ui.MUT).apply { setPadding(0, dp(2), 0, dp(2)) }) }
         val due = m["due_ts"] as? Double
         if (due != null) {
             val guessed = m["due_kind"] == "ipotizzata"
@@ -100,8 +124,8 @@ class MemoActivity : Activity() {
             info.add(LinearLayout(this).apply { addView(chip) })
         }
         r.add(info, weight = 1f)
-        r.add(button("🕑") { pickDue { ts -> db.setMemoDue(uid, ts); changed() } }, marginEnd = 4)
-        r.add(button("✕") {
+        r.add(iconButton("🕑") { pickDue { ts -> db.setMemoDue(uid, ts); changed() } }, marginEnd = 6)
+        r.add(iconButton("✕") {
             AlertDialog.Builder(this).setMessage("Eliminare il memo?")
                 .setPositiveButton("Elimina") { _, _ -> db.deleteMemo(uid); changed() }
                 .setNegativeButton("Annulla", null).show()
@@ -244,6 +268,9 @@ class ArchiveActivity : Activity() {
             body.add(card().apply {
                 add(text("${Ui.hm(r["started_at"] as Double)}  ${r["title"] ?: ""}", 15f, bold = true))
                 add(text(kws(r["keywords"]).ifEmpty { r["status"] as? String ?: "" }, 12f, Ui.MUT))
+                feelings(r["feelings"]).takeIf { it.isNotEmpty() }?.let { f ->
+                    add(text(f.joinToString("  ·  ") { "${it.first} ${it.second}" }, 12f, Ui.WARN).apply { setPadding(0, dp(4), 0, 0) })
+                }
                 setOnClickListener { go(rec = r["id"] as Long) }
             })
         }
@@ -252,6 +279,12 @@ class ArchiveActivity : Activity() {
     private fun showTranscript(rid: Long, hl: Long) {
         val r = db.recording(rid)
         val body = page(if (r != null) "${r["day"]} ${Ui.hm(r["started_at"] as Double)}" else "Trascrizione")
+        feelings(r?.get("feelings")).takeIf { it.isNotEmpty() }?.let { f ->
+            body.add(card().apply {
+                add(text("Come sembravano sentirsi", 15f, bold = true))
+                f.forEach { add(text("${it.first}: ${it.second} — ${it.third}", 14f).apply { setPadding(0, dp(4), 0, 0) }) }
+            })
+        }
         val c = card()
         var target: View? = null
         db.transcript(rid).forEach { u ->

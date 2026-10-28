@@ -24,6 +24,10 @@ input.grow{flex:1}
 .due{font-size:12px;border-radius:6px;padding:1px 7px;margin-left:4px}.due.esplicita{background:var(--acc);color:#fff}
 .due.ipotizzata{border:1px dashed var(--warn);color:var(--warn)}.due.late{background:#7a1d24;color:#fff}
 .ans{white-space:pre-wrap}
+.mt{font-weight:600}.md2{color:var(--mut);font-size:13px;margin-top:2px}
+.agday{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 2px}
+.feel{display:inline-block;border:1px solid var(--line);border-radius:10px;padding:4px 9px;margin:3px 4px 3px 0;font-size:13px}
+.feel b{font-weight:600}
 .ev{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}
 .ev .t{color:var(--mut);font-variant-numeric:tabular-nums;min-width:96px}.ev.ai .x{color:var(--acc)}.ev.memo .x{color:var(--ok)}
 .utt{padding:4px 0;border-bottom:1px solid var(--line)}.utt:last-child{border:0}
@@ -34,7 +38,7 @@ mark{background:#5a3b10;color:inherit}
 </head>
 <body>
 <header><b>VoiceAi</b>
-<nav class="row"><button data-v="ask">Chiedi</button><button data-v="memo">Memo</button><button data-v="days">Giornate</button><button data-v="log">Cronologia</button><button data-v="persons">Persone</button>
+<nav class="row"><button data-v="ask">Chiedi</button><button data-v="memo">Da fare</button><button data-v="agenda">Agenda</button><button data-v="days">Giornate</button><button data-v="log">Cronologia</button><button data-v="persons">Persone</button>
 <button data-v="search">Cerca</button><button data-v="status">Stato</button></nav></header>
 <main id="m"></main>
 <script>
@@ -46,6 +50,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const hm = ts => new Date(ts * 1000).toLocaleTimeString("it-IT", {hour: "2-digit", minute: "2-digit"});
 const dur = s => `${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m`;
 const kws = j => { try { return JSON.parse(j || "[]"); } catch (e) { return []; } };
+const feels = j => { let f = []; try { f = JSON.parse(j || "[]"); } catch (e) {}
+  return f.map(x => `<span class="feel" title="${esc(x.perche)}"><b>${esc(x.persona)}</b> ${esc(x.sensazione)}</span>`).join(""); };
 const MOODS = {"-2": "😣", "-1": "😕", "0": "😐", "1": "🙂", "2": "😄"};
 
 async function api(path, opt = {}) {
@@ -94,23 +100,35 @@ const views = {
     document.getElementById("go").onclick = go;
     document.getElementById("q").onkeydown = e => { if (e.key === "Enter") go(); };
   },
-  async memo() {
-    const [open, done] = await Promise.all([api("/api/memos"), api("/api/memos?done=1&limit=20")]);
+  async memo() { return views.memoList("todo"); },
+  async agenda() { return views.memoList("agenda"); },
+  async memoList(kind) {
+    const ag = kind === "agenda";
+    const [open, done] = await Promise.all([api("/api/memos?kind=" + kind), api(`/api/memos?kind=${kind}&done=1&limit=20`)]);
     const row = m => `<div class="memo" data-m="${m.id}"><input type="checkbox" ${m.done ? "checked" : ""}>
-      <div style="flex:1">${esc(m.text)} ${dueTxt(m)}<div class="mut">${m.source === "manuale" ? "aggiunto a mano" : "dalla registrazione del " + new Date(m.created * 1000).toLocaleString("it-IT", {day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit"})}</div></div>
+      <div style="flex:1"><span class="mt">${esc(m.text)}</span> ${dueTxt(m)}${m.descr ? `<div class="md2">${esc(m.descr)}</div>` : ""}
+      <div class="mut">${m.source === "manuale" ? "aggiunto a mano" : "dalla registrazione del " + new Date(m.created * 1000).toLocaleString("it-IT", {day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit"})}</div></div>
       <button class="ed" title="Orario">🕑</button><button class="dl" title="Elimina">✕</button></div>`;
-    M.innerHTML = `<div class="card row"><input id="nt" class="grow" placeholder="Nuovo memo…"><input id="nd" type="datetime-local"><button class="pri" id="add">Aggiungi</button></div>
-      <div class="card"><b>Da fare</b>${open.map(row).join("") || "<div class='mut'>Niente in sospeso.</div>"}</div>
-      <p class="mut"><span class="due esplicita">ora</span> detta esplicitamente · <span class="due ipotizzata">~ora</span> stimata dai tuoi ritmi (impara da quando spunti i memo)</p>
-      ${done.length ? `<div class="card"><b>Fatti di recente</b>${done.map(row).join("")}</div>` : ""}`;
+    // agenda: raggruppata per giorno
+    let list = "";
+    if (ag) { let last = "";
+      for (const m of open) { const d = m.due_ts ? new Date(m.due_ts * 1000).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long"}) : "senza data";
+        if (d !== last) { list += `<div class="agday">${esc(d)}</div>`; last = d; } list += row(m); }
+    } else list = open.map(row).join("");
+    M.innerHTML = `<div class="card"><div class="row"><input id="nt" class="grow" placeholder="${ag ? "Nuovo appuntamento…" : "Nuova cosa da fare…"}"><input id="nd" type="datetime-local"><button class="pri" id="add">Aggiungi</button></div>
+      <input id="nx" placeholder="Descrizione (facoltativa)" style="width:100%;margin-top:8px"></div>
+      <div class="card"><b>${ag ? "In programma" : "Da fare"}</b>${list || `<div class='mut'>${ag ? "Nessun appuntamento." : "Niente in sospeso."}</div>`}</div>
+      ${ag ? "" : `<p class="mut"><span class="due esplicita">ora</span> detta esplicitamente · <span class="due ipotizzata">~ora</span> stimata dai tuoi ritmi (impara da quando spunti i memo)</p>`}
+      ${done.length ? `<div class="card"><b>${ag ? "Passati" : "Fatti di recente"}</b>${done.map(row).join("")}</div>` : ""}`;
     document.getElementById("add").onclick = async () => { const t = document.getElementById("nt").value.trim(); if (!t) return;
-      const d = document.getElementById("nd").value; await api("/api/memos", {method: "POST", body: JSON.stringify({text: t, due_ts: d ? new Date(d).getTime() / 1000 : null})}); views.memo(); };
+      const d = document.getElementById("nd").value; if (ag && !d) return alert("Per l'agenda serve data e ora");
+      await api("/api/memos", {method: "POST", body: JSON.stringify({text: t, descr: document.getElementById("nx").value.trim(), kind, due_ts: d ? new Date(d).getTime() / 1000 : null})}); views.memoList(kind); };
     M.querySelectorAll("[data-m]").forEach(c => { const id = +c.dataset.m;
-      c.querySelector("input").onchange = async e => { await api("/api/memos/" + id, {method: "PATCH", body: JSON.stringify({done: e.target.checked})}); views.memo(); };
-      c.querySelector(".dl").onclick = async () => { await api("/api/memos/" + id, {method: "DELETE"}); views.memo(); };
+      c.querySelector("input").onchange = async e => { await api("/api/memos/" + id, {method: "PATCH", body: JSON.stringify({done: e.target.checked})}); views.memoList(kind); };
+      c.querySelector(".dl").onclick = async () => { await api("/api/memos/" + id, {method: "DELETE"}); views.memoList(kind); };
       c.querySelector(".ed").onclick = async () => { const v = prompt("Scadenza (AAAA-MM-GG HH:MM)"); if (!v) return;
         const t = new Date(v.replace(" ", "T")); if (isNaN(t)) return alert("Formato non valido");
-        await api("/api/memos/" + id, {method: "PATCH", body: JSON.stringify({due_ts: t.getTime() / 1000})}); views.memo(); };
+        await api("/api/memos/" + id, {method: "PATCH", body: JSON.stringify({due_ts: t.getTime() / 1000})}); views.memoList(kind); };
     });
   },
   async days() {
@@ -141,6 +159,7 @@ const views = {
       ${d.recordings.map(r => `<div class="card" data-rec="${r.id}" style="cursor:pointer"><div class="row"><b>${hm(r.started_at)}</b>
         <span>${esc(r.title || "")}</span><span class="mut" style="margin-left:auto">${r.status}${r.duration ? " · " + Math.round(r.duration / 60) + " min" : ""}</span></div>
         <div>${kws(r.keywords).map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div>
+        ${r.feelings ? `<div>${feels(r.feelings)}</div>` : ""}
         ${r.error ? `<div class="mut">${esc(r.error)}</div>` : ""}</div>`).join("")}`;
     document.getElementById("back").onclick = () => show("days");
     document.getElementById("lg").onclick = () => views.log(day);
@@ -151,6 +170,8 @@ const views = {
     const r = await api("/api/recordings/" + id);
     M.innerHTML = `<div class="row" style="margin-bottom:10px"><button id="back">← ${esc(r.day)}</button><b>${hm(r.started_at)} ${esc(r.title || "")}</b>
       ${r.status === "error" ? `<button id="retry">Riprova</button>` : ""}</div>
+      ${r.feelings && feels(r.feelings) ? `<div class="card"><b>Come sembravano sentirsi</b><div>${JSON.parse(r.feelings).map(x =>
+        `<div class="utt"><span class="who">${esc(x.persona)}</span>: ${esc(x.sensazione)} <span class="mut">— ${esc(x.perche)}</span></div>`).join("")}</div></div>` : ""}
       <div class="card"><audio controls preload="none" style="width:100%" id="au"></audio></div>
       <div class="card">${r.utterances.map(u => `<div class="utt" id="u${u.id}"><span class="mut">${hm(u.ts)}</span>
         <span class="who ${/\?$|^Sconosciuto/.test(u.speaker) ? "prob" : ""}">${esc(u.speaker)}</span>: ${u.id === hl ? `<mark>${esc(u.text)}</mark>` : esc(u.text)}</div>`).join("") || "<span class='mut'>Nessun parlato.</span>"}</div>`;

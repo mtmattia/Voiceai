@@ -10,7 +10,12 @@ log = logging.getLogger(__name__)
 SYS = "Analizzi trascrizioni in italiano. Rispondi SOLO con JSON valido. Non inventare."
 
 KW = """Dalla trascrizione estrai un titolo breve (max 8 parole) e 3-8 parole chiave utili per ritrovarla
-(argomenti, progetti, luoghi, persone citate). Formato: {{"titolo": "...", "parole_chiave": ["...", "..."]}}
+(argomenti, progetti, luoghi, persone citate).
+Poi, per ogni interlocutore{escluso} che parla abbastanza da capirlo, come sembrava sentirsi: "sensazione" in
+una o due parole (es. tranquillo, preoccupato, irritato, entusiasta, stanco, di fretta) e "perche" in una frase
+breve basata solo su ciò che dice. Se non si capisce, non includerlo. Usa i nomi come compaiono nel testo.
+Formato: {{"titolo": "...", "parole_chiave": ["...", "..."],
+"sensazioni": [{{"persona": "...", "sensazione": "...", "perche": "..."}}]}}
 
 TRASCRIZIONE:
 {body}"""
@@ -43,11 +48,19 @@ def recording_keywords(db, cfg, rid):
     rows = db.q("""SELECT u.start, u.end, u.text, COALESCE(p.name, u.label) AS who FROM utterances u
                    LEFT JOIN persons p ON p.id=u.person_id WHERE recording_id=? ORDER BY start""", (rid,))
     body = "\n".join(f"{r['who']}: {r['text']}" for r in rows)[: cfg["llm"]["block_max_chars"]]
-    d = _json(cfg, KW.format(body=body)) if body else {}
+    owner = db.owner()
+    d = _json(cfg, KW.format(body=body, escluso=f" (escluso {owner['name']})" if owner else "")) if body else {}
     kws = [str(k).strip().lower() for k in d.get("parole_chiave", []) if str(k).strip()][:8]
+    who = {r["who"] for r in rows}
+    feel = [{"persona": str(f["persona"])[:80], "sensazione": str(f.get("sensazione", ""))[:40],
+             "perche": str(f.get("perche", ""))[:300]}
+            for f in d.get("sensazioni", []) if isinstance(d.get("sensazioni"), list)
+            if isinstance(f, dict) and f.get("persona") in who and f.get("sensazione")
+            and not (owner and f.get("persona") == owner["name"])]
     with db.tx() as c:
-        c.execute("UPDATE recordings SET title=?, keywords=? WHERE id=?",
-                  (str(d.get("titolo", ""))[:120], json.dumps(kws, ensure_ascii=False), rid))
+        c.execute("UPDATE recordings SET title=?, keywords=?, feelings=? WHERE id=?",
+                  (str(d.get("titolo", ""))[:120], json.dumps(kws, ensure_ascii=False),
+                   json.dumps(feel, ensure_ascii=False), rid))
 
 
 def _sample(lines, max_chars):

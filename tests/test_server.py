@@ -114,7 +114,11 @@ def test_full_flow(env, monkeypatch):
     def fake_chat(cfg_, sys, user, json_mode=False):
         calls.append(user)
         if "parole chiave" in user:
-            return '{"titolo": "Fornitore in ritardo", "parole_chiave": ["fornitore", "preventivo"]}'
+            assert "escluso Mattia" in user
+            return json.dumps({"titolo": "Fornitore in ritardo", "parole_chiave": ["fornitore", "preventivo"],
+                               "sensazioni": [{"persona": "Marco", "sensazione": "tranquillo", "perche": "risponde sereno"},
+                                              {"persona": "Mattia", "sensazione": "stanco", "perche": "lo dice"},
+                                              {"persona": "Pippo", "sensazione": "felice", "perche": "inventato"}]})
         if "stato d'animo" in user:
             assert "Mattia" in user and "stanco" in user and "consegna slitta" not in user.split("FRASI DI")[1]
             return '{"umore": "affaticato", "punteggio": -1, "motivazione": "dice di essere stanco", "suggerimento": "Fai una pausa."}'
@@ -126,6 +130,8 @@ def test_full_flow(env, monkeypatch):
     d = c.get("/api/days/2026-10-28", headers=H).json()
     assert d["mood"] == "affaticato" and d["mood_score"] == -1 and d["tip"] == "Fai una pausa."
     assert "fornitore" in json.loads(d["keywords"]) and d["recordings"][0]["title"] == "Fornitore in ritardo"
+    # sensazioni: solo interlocutori presenti nel testo, mai l'utente stesso
+    assert json.loads(d["recordings"][0]["feelings"]) == [{"persona": "Marco", "sensazione": "tranquillo", "perche": "risponde sereno"}]
     assert c.get("/api/search", headers=H, params={"q": "preventivo"}).json()["registrazioni"]
     assert not w.step()                       # niente da fare
 
@@ -178,16 +184,21 @@ def test_memo_extract_explicit_guess_and_learn(env, monkeypatch):
     t0 = time.mktime((2026, 10, 28, 9, 0, 0, 0, 0, -1))
     up(c, BLOCK1, 0, t0)
     w.step()
-    reply = {"memo": [{"testo": "Stampare i documenti", "quando": "2026-10-28T12:00", "momento": None},
-                      {"testo": "Prendere il gatto", "quando": None, "momento": "sera"},
-                      {"testo": "Stampare i documenti", "quando": None, "momento": None},   # doppione
-                      {"testo": "", "quando": None}, "spazzatura"]}
+    reply = {"todo": [{"titolo": "Stampare i documenti", "descrizione": "Per Marco, due copie.", "quando": "2026-10-28T12:00", "momento": None},
+                      {"titolo": "Prendere il gatto", "quando": None, "momento": "sera"},
+                      {"titolo": "Stampare i documenti", "quando": None, "momento": None},   # doppione
+                      {"titolo": "", "quando": None}, "spazzatura"],
+             "agenda": [{"titolo": "Cena da mamma", "descrizione": "Porta il vino.", "quando": "2026-10-28T20:00"},
+                        {"titolo": "Chiamare il fornitore", "quando": None}]}            # senza data: diventa todo
     # llm è un unico modulo: una sola funzione finta che risponde in base al prompt
-    monkeypatch.setattr(memos.llm, "chat", lambda c_, s_, u, **k: json.dumps(reply) if "ricordarsi" in u else "{}")
+    monkeypatch.setattr(memos.llm, "chat", lambda c_, s_, u, **k: json.dumps(reply) if '"agenda"' in u else "{}")
     w.step()   # correzione del testo (nessuna correzione proposta)
     w.step()   # memo
     ms = {m["text"]: m for m in c.get("/api/memos", headers=H).json()}
-    assert set(ms) == {"Stampare i documenti", "Prendere il gatto"}
+    assert set(ms) == {"Stampare i documenti", "Prendere il gatto", "Chiamare il fornitore"}
+    assert ms["Stampare i documenti"]["descr"] == "Per Marco, due copie."
+    ag = c.get("/api/memos?kind=agenda", headers=H).json()
+    assert [(a["text"], a["descr"], time.localtime(a["due_ts"]).tm_hour) for a in ag] == [("Cena da mamma", "Porta il vino.", 20)]
     assert ms["Stampare i documenti"]["due_kind"] == "esplicita"
     assert time.localtime(ms["Stampare i documenti"]["due_ts"]).tm_hour == 12
     g = ms["Prendere il gatto"]

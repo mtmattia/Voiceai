@@ -13,7 +13,7 @@ import java.util.UUID
  * Copia locale dell'archivio: trascrizioni, giornate, persone, memo. Consultabile offline.
  * persons/memos hanno dirty=1 finché la modifica locale non è stata inviata al PC.
  */
-class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai.db", null, 1) {
+class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai.db", null, 2) {
     companion object {
         @Volatile private var inst: LocalDb? = null
         fun get(ctx: Context) = inst ?: synchronized(this) { inst ?: LocalDb(ctx.applicationContext).also { inst = it } }
@@ -24,9 +24,9 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             notes TEXT, updated_at REAL, dirty INTEGER DEFAULT 0)""")
         db.execSQL("""CREATE TABLE memos(uid TEXT PRIMARY KEY, text TEXT, due_ts REAL, due_kind TEXT, moment TEXT,
             done INTEGER DEFAULT 0, done_ts REAL, source TEXT, recording_id INTEGER, created REAL, updated_at REAL,
-            dirty INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0)""")
+            dirty INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0, descr TEXT DEFAULT '', kind TEXT DEFAULT 'todo')""")
         db.execSQL("""CREATE TABLE recordings(id INTEGER PRIMARY KEY, day TEXT, started_at REAL, duration REAL,
-            status TEXT, title TEXT, keywords TEXT)""")
+            status TEXT, title TEXT, keywords TEXT, feelings TEXT)""")
         db.execSQL("""CREATE TABLE utterances(id INTEGER PRIMARY KEY, recording_id INTEGER, ts REAL, start REAL,
             stop REAL, label TEXT, person_id INTEGER, text TEXT)""")
         db.execSQL("""CREATE TABLE days(day TEXT PRIMARY KEY, keywords TEXT, summary TEXT, mood TEXT,
@@ -36,7 +36,13 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
         db.execSQL("CREATE INDEX utt_ts ON utterances(ts)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
+        if (old < 2) {   // todo con descrizione, agenda, sensazioni degli interlocutori
+            db.execSQL("ALTER TABLE memos ADD COLUMN descr TEXT DEFAULT ''")
+            db.execSQL("ALTER TABLE memos ADD COLUMN kind TEXT DEFAULT 'todo'")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN feelings TEXT")
+        }
+    }
 
     // ---------- helpers ----------
     private fun Cursor.rows(): List<Map<String, Any?>> = use {
@@ -82,7 +88,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
             r.optJSONArray("memos")?.objects()?.forEach { applyMemo(db, it) }
             r.optJSONArray("recordings")?.objects()?.forEach {
                 db.insertWithOnConflict("recordings", null,
-                    it.cv("id", "day", "started_at", "duration", "status", "title", "keywords"), SQLiteDatabase.CONFLICT_REPLACE)
+                    it.cv("id", "day", "started_at", "duration", "status", "title", "keywords", "feelings"), SQLiteDatabase.CONFLICT_REPLACE)
             }
             r.optJSONArray("utterances")?.objects()?.forEach {
                 val cv = it.cv("id", "recording_id", "ts", "start", "label", "person_id", "text")
@@ -125,7 +131,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
 
     private fun applyMemo(db: SQLiteDatabase, m: JSONObject) {
         if (localNewer(db, "memos", "uid", m.getString("uid"), m.optDouble("updated_at", 0.0))) return
-        val cv = m.cv("uid", "text", "due_ts", "due_kind", "moment", "done", "done_ts", "source", "recording_id",
+        val cv = m.cv("uid", "text", "descr", "kind", "due_ts", "due_kind", "moment", "done", "done_ts", "source", "recording_id",
             "created", "updated_at").apply { put("dirty", 0); put("deleted", 0) }
         db.insertWithOnConflict("memos", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -148,11 +154,12 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
         } finally { db.endTransaction() }
     }
 
-    fun addMemo(text: String, dueTs: Double?): String {
+    fun addMemo(text: String, dueTs: Double?, descr: String = "", kind: String = "todo"): String {
         val uid = UUID.randomUUID().toString().replace("-", "")
         val now = Ui.now()
         writableDatabase.insert("memos", null, ContentValues().apply {
             put("uid", uid); put("text", text.trim().take(200)); put("source", "manuale")
+            put("descr", descr.trim().take(1000)); put("kind", kind)
             if (dueTs != null) { put("due_ts", dueTs); put("due_kind", "esplicita") }
             put("created", now); put("updated_at", now); put("dirty", 1)
         })
@@ -184,7 +191,7 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
         val persons = JSONArray()
         q("SELECT id, name, confirmed, is_owner, notes, updated_at FROM persons WHERE dirty=1").forEach { persons.put(JSONObject(it)) }
         val memos = JSONArray()
-        q("""SELECT uid, text, due_ts, due_kind, moment, done, done_ts, created, updated_at, deleted
+        q("""SELECT uid, text, descr, kind, due_ts, due_kind, moment, done, done_ts, created, updated_at, deleted
              FROM memos WHERE dirty=1""").forEach { m -> memos.put(JSONObject(m).put("deleted", m["deleted"] == 1L)) }
         return JSONObject().put("persons", persons).put("memos", memos)
     }
@@ -227,8 +234,10 @@ class LocalDb private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "voiceai
         WHERE lower(keywords) LIKE ? OR lower(title) LIKE ? ORDER BY started_at DESC LIMIT 30""",
         "%${query.lowercase().trim()}%", "%${query.lowercase().trim()}%")
 
-    fun openMemos() = q("SELECT * FROM memos WHERE done=0 AND deleted=0 ORDER BY due_ts IS NULL, due_ts, created")
-    fun doneMemos() = q("SELECT * FROM memos WHERE done=1 AND deleted=0 ORDER BY done_ts DESC LIMIT 20")
+    fun openMemos(kind: String = "todo") =
+        q("SELECT * FROM memos WHERE done=0 AND deleted=0 AND kind=? ORDER BY due_ts IS NULL, due_ts, created", kind)
+    fun doneMemos(kind: String = "todo") =
+        q("SELECT * FROM memos WHERE done=1 AND deleted=0 AND kind=? ORDER BY done_ts DESC LIMIT 20", kind)
     fun persons() = q("""SELECT p.*, (SELECT COALESCE(SUM(stop-start),0) FROM utterances WHERE person_id=p.id) AS talk_sec,
         (SELECT MAX(ts) FROM utterances WHERE person_id=p.id) AS last_seen FROM persons p ORDER BY confirmed DESC, talk_sec DESC""")
     fun days() = q("""SELECT d.day, d.mood, d.mood_score, d.keywords,

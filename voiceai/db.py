@@ -72,7 +72,14 @@ CREATE TRIGGER IF NOT EXISTS {_t}_sync_d AFTER DELETE ON {_t} BEGIN
 
 
 MIGRATIONS = [("utterances", "raw", "TEXT"),                       # testo di Whisper prima della correzione LLM
-              ("recordings", "corrected", "INTEGER DEFAULT 0")]
+              ("recordings", "corrected", "INTEGER DEFAULT 0"),
+              ("recordings", "feelings", "TEXT"),                    # JSON: come sembrava sentirsi ogni interlocutore
+              ("memos", "descr", "TEXT DEFAULT ''"),                 # text = titolo breve, descr = dettagli
+              ("memos", "kind", "TEXT DEFAULT 'todo'")]              # todo | agenda (appuntamento con data e ora)
+
+
+def _kind(m):
+    return "agenda" if m.get("kind") == "agenda" else "todo"
 
 
 class DB:
@@ -194,8 +201,8 @@ class DB:
     # --- sync con il telefono ---
     PULL_COLS = {
         "persons": "id, name, confirmed, is_owner, notes, rev, updated_at",
-        "memos": "uid, text, due_ts, due_kind, moment, done, done_ts, source, recording_id, created, rev, updated_at",
-        "recordings": "id, day, started_at, duration, status, title, keywords, rev, updated_at",
+        "memos": "uid, text, descr, kind, due_ts, due_kind, moment, done, done_ts, source, recording_id, created, rev, updated_at",
+        "recordings": "id, day, started_at, duration, status, title, keywords, feelings, rev, updated_at",
         "utterances": "id, recording_id, ts, start, end, label, person_id, text, rev, updated_at",
         "days": "day, keywords, summary, mood, mood_score, mood_reason, tip, rev, updated_at",
     }
@@ -247,13 +254,15 @@ class DB:
                 if m.get("deleted"):
                     c.execute("DELETE FROM memos WHERE uid=?", (uid,))
                 elif cur:
-                    c.execute("""UPDATE memos SET text=?, due_ts=?, due_kind=?, done=?, done_ts=?, updated_at=?
-                                 WHERE uid=?""", (str(m.get("text") or "")[:200], m.get("due_ts"), m.get("due_kind"),
-                                                 int(bool(m.get("done"))), m.get("done_ts"), ts, uid))
+                    c.execute("""UPDATE memos SET text=?, descr=?, kind=?, due_ts=?, due_kind=?, done=?, done_ts=?,
+                                 updated_at=? WHERE uid=?""",
+                              (str(m.get("text") or "")[:200], str(m.get("descr") or "")[:1000], _kind(m),
+                               m.get("due_ts"), m.get("due_kind"), int(bool(m.get("done"))), m.get("done_ts"), ts, uid))
                 else:
-                    c.execute("""INSERT INTO memos(uid, text, due_ts, due_kind, moment, done, done_ts, source,
-                                 created, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                              (uid, str(m.get("text") or "")[:200], m.get("due_ts"), m.get("due_kind"),
+                    c.execute("""INSERT INTO memos(uid, text, descr, kind, due_ts, due_kind, moment, done, done_ts,
+                                 source, created, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                              (uid, str(m.get("text") or "")[:200], str(m.get("descr") or "")[:1000], _kind(m),
+                               m.get("due_ts"), m.get("due_kind"),
                                m.get("moment"), int(bool(m.get("done"))), m.get("done_ts"), "manuale",
                                float(m.get("created") or ts), ts))
                 applied += 1

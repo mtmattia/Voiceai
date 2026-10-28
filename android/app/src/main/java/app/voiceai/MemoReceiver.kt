@@ -22,7 +22,8 @@ class MemoReceiver : BroadcastReceiver() {
         fun scheduleAll(ctx: Context) {
             val am = ctx.getSystemService(AlarmManager::class.java) ?: return
             val now = System.currentTimeMillis()
-            for (m in LocalDb.get(ctx).openMemos()) {
+            val db = LocalDb.get(ctx)
+            for (m in db.openMemos("todo") + db.openMemos("agenda")) {
                 val due = ((m["due_ts"] as? Double) ?: continue) * 1000
                 val uid = m["uid"] as String
                 if (due.toLong() in now..(now + 2 * 86_400_000L)) {
@@ -38,12 +39,16 @@ class MemoReceiver : BroadcastReceiver() {
         val m = LocalDb.get(ctx).q("SELECT * FROM memos WHERE uid=? AND done=0 AND deleted=0", uid).firstOrNull() ?: return
         val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Memo", NotificationManager.IMPORTANCE_HIGH))
-        val open = PendingIntent.getActivity(ctx, 2, Intent(ctx, MemoActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val agenda = m["kind"] == "agenda"
+        val open = PendingIntent.getActivity(ctx, if (agenda) 3 else 2,
+            Intent(ctx, MemoActivity::class.java).putExtra("kind", m["kind"] as? String ?: "todo"), PendingIntent.FLAG_IMMUTABLE)
         val guessed = m["due_kind"] == "ipotizzata"
+        val descr = (m["descr"] as? String).orEmpty()
         nm.notify(uid.hashCode(), NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle(m["text"] as String)
-            .setContentText(if (guessed) "Di solito lo fai a quest'ora" else "Scadenza adesso")
+            .setContentText(descr.ifEmpty { if (agenda) "Appuntamento adesso" else if (guessed) "Di solito lo fai a quest'ora" else "Scadenza adesso" })
+            .setStyle(NotificationCompat.BigTextStyle().bigText(descr.ifEmpty { if (agenda) "Appuntamento adesso" else "Scadenza adesso" }))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build())

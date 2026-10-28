@@ -14,14 +14,24 @@ log = logging.getLogger(__name__)
 SYS = "Estrai promemoria da trascrizioni in italiano. Rispondi SOLO con JSON valido. Non inventare."
 
 PROMPT = """Registrazione di {owner}, iniziata {when} ({weekday}).
-Elenca le cose che {owner} deve ricordarsi o fare: impegni che prende ("devo stampare alle 12",
-"ricordami di prendere il gatto", "stasera mangio da mamma") o richieste che altri gli fanno e che accetta.
-Ignora chiacchiere, opinioni e cose già fatte. Testo breve all'infinito ("Stampare i documenti").
-"quando": data e ora ISO (AAAA-MM-GGTHH:MM) SOLO se nel testo c'è un riferimento esplicito
-("alle 12", "domani alle 9", "lunedì"), calcolato rispetto all'inizio registrazione; altrimenti null.
-"momento": se non c'è orario, il momento più probabile: mattina, pranzo, pomeriggio, sera, oppure null.
-Formato: {{"memo": [{{"testo": "...", "quando": null, "momento": "sera"}}]}}
-Se non c'è niente: {{"memo": []}}
+Estrai due liste separate.
+
+1. "todo": cose che {owner} deve fare: impegni che prende ("devo stampare i documenti", "ricordami di
+prendere il gatto") o richieste che altri gli fanno e che accetta. Ignora chiacchiere, opinioni, cose già fatte.
+2. "agenda": appuntamenti e incontri a un'ora precisa (riunioni, visite, consegne, "domani alle 9 dal
+cliente", "stasera ceno da mamma"). Solo se c'è un giorno o un orario detto nel testo.
+
+Per ogni voce:
+"titolo": breve, max 6 parole, all'infinito per i todo ("Stampare i documenti"), nome dell'evento per l'agenda
+("Cena da mamma");
+"descrizione": 1-2 frasi con i dettagli utili presi dal testo: cosa esattamente, per chi, chi l'ha chiesto,
+dove, materiali, perché. Niente che non sia nel testo;
+"quando": data e ora ISO (AAAA-MM-GGTHH:MM) SOLO se c'è un riferimento esplicito ("alle 12", "domani alle 9",
+"lunedì"), calcolato rispetto all'inizio registrazione; altrimenti null (per l'agenda è obbligatorio);
+"momento" (solo todo): se non c'è orario, il momento più probabile: mattina, pranzo, pomeriggio, sera, o null.
+Formato: {{"todo": [{{"titolo": "...", "descrizione": "...", "quando": null, "momento": "sera"}}],
+"agenda": [{{"titolo": "...", "descrizione": "...", "quando": "2026-10-29T09:00"}}]}}
+Liste vuote se non c'è niente.
 
 TRASCRIZIONE:
 {body}"""
@@ -76,15 +86,18 @@ def _parse_when(s):
         return None
 
 
-def add(db, text, recording_id=None, due_ts=None, due_kind=None, moment=None, source="auto"):
-    """Inserisce evitando doppioni di memo ancora aperti negli ultimi 3 giorni."""
-    for m in db.q("SELECT id, text FROM memos WHERE done=0 AND created > ?", (time.time() - 3 * 86400,)):
+def add(db, text, recording_id=None, due_ts=None, due_kind=None, moment=None, source="auto", descr="", kind="todo"):
+    """Inserisce evitando doppioni (stesso tipo, ancora aperti, ultimi 3 giorni)."""
+    for m in db.q("SELECT id, text, descr FROM memos WHERE done=0 AND kind=? AND created > ?",
+                  (kind, time.time() - 3 * 86400)):
         if jaccard(m["text"], text) >= 0.6:
+            if descr and not m["descr"]:
+                db.q("UPDATE memos SET descr=? WHERE id=?", (descr, m["id"]))
             return None
     with db.tx() as c:
-        return c.execute("""INSERT INTO memos(uid, recording_id, text, due_ts, due_kind, moment, source, created)
-                            VALUES(?,?,?,?,?,?,?,?)""",
-                         (uuid.uuid4().hex, recording_id, text, due_ts, due_kind, moment, source,
+        return c.execute("""INSERT INTO memos(uid, recording_id, text, descr, kind, due_ts, due_kind, moment, source,
+                            created) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                         (uuid.uuid4().hex, recording_id, text, descr, kind, due_ts, due_kind, moment, source,
                           time.time())).lastrowid
 
 
@@ -94,25 +107,33 @@ def extract(db, cfg, rid):
     rows = db.q("""SELECT u.start, u.text, COALESCE(p.name, u.label) AS who FROM utterances u
                    LEFT JOIN persons p ON p.id=u.person_id WHERE recording_id=? ORDER BY start""", (rid,))
     body = "\n".join(f"{r['who']}: {r['text']}" for r in rows)[: cfg["llm"]["block_max_chars"]]
-    found = []
+    d = {}
     if body:
         when = dt.datetime.fromtimestamp(rec["started_at"])
         try:
             d = json.loads(llm.chat(cfg, SYS, PROMPT.format(
                 owner=owner["name"] if owner else "l'utente", when=f"{when:%Y-%m-%d %H:%M}",
                 weekday=WEEKDAYS[when.weekday()], body=body), json_mode=True))
-            found = d.get("memo", []) if isinstance(d, dict) else []
+            d = d if isinstance(d, dict) else {}
         except Exception as e:
             log.warning("memo blocco %s: %s", rid, e)
-    for m in found:
-        if not isinstance(m, dict) or not str(m.get("testo", "")).strip():
-            continue
-        text = str(m["testo"]).strip()[:200]
-        moment = m.get("momento") if m.get("momento") in MOMENT_HOURS else None
-        due = _parse_when(m.get("quando"))
-        if due and due > rec["started_at"] - 3600:
-            add(db, text, rid, due, "esplicita", moment)
-        else:
-            g = guess_due(db, text, moment, rec["started_at"])
-            add(db, text, rid, g, "ipotizzata" if g else None, moment)
+    for kind in ("todo", "agenda"):
+        for m in d.get(kind) or [] if isinstance(d.get(kind), list) else []:
+            title = str(m.get("titolo") or m.get("testo") or "").strip()[:120] if isinstance(m, dict) else ""
+            if not title:
+                continue
+            descr = str(m.get("descrizione") or "").strip()[:1000]
+            due = _parse_when(m.get("quando"))
+            if due and due < rec["started_at"] - 3600:
+                due = None
+            if kind == "agenda":
+                if due:   # un appuntamento senza data non è agenda: diventa un todo
+                    add(db, title, rid, due, "esplicita", None, descr=descr, kind="agenda")
+                    continue
+            moment = m.get("momento") if m.get("momento") in MOMENT_HOURS else None
+            if due:
+                add(db, title, rid, due, "esplicita", moment, descr=descr)
+            else:
+                g = guess_due(db, title, moment, rec["started_at"])
+                add(db, title, rid, g, "ipotizzata" if g else None, moment, descr=descr)
     db.q("UPDATE recordings SET memos_done=1 WHERE id=?", (rid,))

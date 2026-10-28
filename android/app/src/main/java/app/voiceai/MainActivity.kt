@@ -70,12 +70,15 @@ class MainActivity : Activity() {
         status = text("", 12f, Ui.MUT)
         titles.add(status)
         head.add(titles, weight = 1f)
+        head.add(iconButton("👥") { open(PersonsActivity::class.java) }, marginEnd = 8)
         head.add(iconButton("⚙") { open(SettingsActivity::class.java) })
         col.add(head)
 
         val nav = row().apply { setPadding(0, dp(14), 0, 0) }
-        nav.add(tile("📝", "Memo", 0xFFE5B454.toInt()) { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 8)
-        nav.add(tile("👥", "Persone", 0xFF4CC38A.toInt()) { open(PersonsActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile("📝", "Da fare", 0xFFE5B454.toInt()) { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile("📅", "Agenda", 0xFF4CC38A.toInt()) {
+            startActivity(Intent(this, MemoActivity::class.java).putExtra("kind", "agenda"))
+        }, weight = 1f, marginEnd = 8)
         nav.add(tile("🗂️", "Archivio", 0xFF5B8DEF.toInt()) { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 8)
         nav.add(tile("🕑", "Cronologia", 0xFFB07CF0.toInt()) { open(TimelineActivity::class.java) }, weight = 1f)
         col.add(nav)
