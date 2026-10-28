@@ -85,11 +85,13 @@ class RecorderService : Service() {
         val f = File(recordingDir(this), "${session}_${idx}_$start.ogg")
         val r = MediaRecorder(this)
         try {
-            r.setAudioSource(MediaRecorder.AudioSource.MIC)
+            val mic = Mic.select(this, Prefs(this).mic)
+            r.setAudioSource(mic.source)
+            mic.input?.let { r.setPreferredDevice(it) }
             r.setOutputFormat(MediaRecorder.OutputFormat.OGG)
             r.setAudioEncoder(MediaRecorder.AudioEncoder.OPUS)
             r.setAudioChannels(1)
-            r.setAudioSamplingRate(48000)
+            r.setAudioSamplingRate(mic.rate)
             r.setAudioEncodingBitRate(32000)   // voce: ~14 MB/ora
             r.setOutputFile(f.absolutePath)
             r.prepare()
@@ -120,6 +122,7 @@ class RecorderService : Service() {
 
     private fun stopAll() {
         finishChunk()
+        Mic.release(this)
         running = false
         wake?.let { if (it.isHeld) it.release() }
         wake = null
@@ -147,5 +150,53 @@ class RecorderService : Service() {
             .setContentIntent(open)
             .addAction(0, "Stop", stop)
             .build()
+    }
+}
+
+/** Scelta del microfono: quello del telefono, uno Bluetooth (cuffie, custodia) o uno USB-C con il filo. */
+object Mic {
+    class Choice(val source: Int, val input: android.media.AudioDeviceInfo?, val rate: Int)
+
+    private val BT = setOf(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET)
+    private val USB = setOf(android.media.AudioDeviceInfo.TYPE_USB_DEVICE, android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+        android.media.AudioDeviceInfo.TYPE_USB_ACCESSORY)
+
+    fun available(ctx: Context): Set<String> {
+        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        val types = am.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS).map { it.type }
+        return buildSet {
+            add("telefono")
+            if (types.any { it in BT } || am.availableCommunicationDevices.any { it.type in BT }) add("bluetooth")
+            if (types.any { it in USB }) add("usb")
+        }
+    }
+
+    fun select(ctx: Context, want: String): Choice {
+        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        val inputs = am.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
+        when (want) {
+            "usb" -> inputs.firstOrNull { it.type in USB }?.let {
+                return Choice(MediaRecorder.AudioSource.MIC, it, 48000)
+            }
+            "bluetooth" -> am.availableCommunicationDevices.firstOrNull { it.type in BT }?.let { out ->
+                // il microfono Bluetooth si apre come in una chiamata (profilo voce, 16 kHz)
+                am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                if (am.setCommunicationDevice(out)) {
+                    val inp = inputs.firstOrNull { it.type == out.type }
+                    return Choice(MediaRecorder.AudioSource.VOICE_COMMUNICATION, inp, 16000)
+                }
+                am.mode = android.media.AudioManager.MODE_NORMAL
+            }
+        }
+        if (want != "telefono") Log.w("voiceai", "microfono $want non disponibile: uso quello del telefono")
+        return Choice(MediaRecorder.AudioSource.MIC, null, 48000)
+    }
+
+    fun release(ctx: Context) {
+        val am = ctx.getSystemService(android.media.AudioManager::class.java)
+        if (am.mode == android.media.AudioManager.MODE_IN_COMMUNICATION) {
+            am.clearCommunicationDevice()
+            am.mode = android.media.AudioManager.MODE_NORMAL
+        }
     }
 }

@@ -382,6 +382,22 @@ class SettingsActivity : Activity() {
         val black = input("Secondi prima dello schermo nero", p.blackAfterSec.toString(), InputType.TYPE_CLASS_NUMBER)
         listOf("Server" to server, "Token" to token, "Dispositivo" to device, "Blocco" to chunk, "Anti burn-in" to black)
             .forEach { (l, v) -> body.add(text(l, 13f, Ui.MUT).apply { setPadding(0, dp(10), 0, dp(4)) }); body.add(v) }
+        // microfono: si applica dal prossimo blocco
+        body.add(text("Microfono", 13f, Ui.MUT).apply { setPadding(0, dp(10), 0, dp(4)) })
+        val micRow = row()
+        val avail = Mic.available(this)
+        fun drawMic() {
+            micRow.removeAllViews()
+            listOf("telefono" to "Telefono", "bluetooth" to "Bluetooth", "usb" to "USB-C").forEachIndexed { i, (k, l) ->
+                micRow.add(button(l, primary = p.mic == k) { p.mic = k; drawMic() }.apply { alpha = if (k in avail) 1f else 0.5f },
+                    weight = 1f, marginEnd = if (i < 2) 8 else 0)
+            }
+        }
+        drawMic()
+        body.add(micRow)
+        body.add(text("Bluetooth (cuffie, custodia con microfono) registra come in una chiamata: qualità più bassa e " +
+            "pensata per la voce di chi lo indossa. USB-C con il filo dà la qualità piena. Se il microfono scelto non " +
+            "è collegato si usa quello del telefono. Sbiadito = non collegato adesso.", 12f, Ui.MUT).apply { setPadding(0, dp(6), 0, 0) })
         val out = text("", 13f, Ui.MUT).apply { setPadding(0, dp(12), 0, 0) }
         body.add(row().apply {
             setPadding(0, dp(16), 0, 0)

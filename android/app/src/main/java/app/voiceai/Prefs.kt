@@ -24,6 +24,10 @@ class Prefs(ctx: Context) {
     var blackAfterSec: Int
         get() = p.getInt("black_after_sec", 8)
         set(v) = p.edit().putInt("black_after_sec", v.coerceIn(3, 120)).apply()
+    /** telefono | bluetooth | usb */
+    var mic: String
+        get() = p.getString("mic", "telefono") ?: "telefono"
+        set(v) = p.edit().putString("mic", v).apply()
     var lastRev: Long
         get() = p.getLong("last_rev", 0)
         set(v) = p.edit().putLong("last_rev", v).apply()
