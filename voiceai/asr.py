@@ -22,9 +22,15 @@ def _device():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def load_audio(path, start=None, end=None):
-    import whisperx
-    audio = whisperx.load_audio(str(path))
+def load_audio(path, start=None, end=None, af=None):
+    """-> float32 16 kHz mono. af = filtro ffmpeg (pulizia: alza le voci lontane, taglia rombi e sibili)."""
+    import subprocess
+
+    import numpy as np
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-threads", "0", "-i", str(path)]
+    cmd += (["-af", af] if af else []) + ["-f", "s16le", "-ac", "1", "-ar", str(SR), "-"]
+    raw = subprocess.run(cmd, capture_output=True, check=True).stdout
+    audio = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
     a = int(start * SR) if start else 0
     b = int(end * SR) if end else len(audio)
     return audio[a:b]
@@ -67,7 +73,7 @@ class Engine:
         import whisperx
         self.load()
         a, d = self.cfg["asr"], self.cfg["diarization"]
-        audio = load_audio(path)
+        audio = load_audio(path, af=a.get("audio_filter"))
         duration = len(audio) / SR
         result = self.model.transcribe(audio, batch_size=a["batch_size"], language=a["language"])
         if not result["segments"]:
@@ -98,7 +104,7 @@ def transcribe(path, cfg, token):
 def embed_clip(path, cfg, token, start=None, end=None):
     """Impronta di una sola voce: stessa pipeline/stesso spazio di embedding delle registrazioni."""
     from whisperx.diarize import DiarizationPipeline
-    audio = load_audio(path, start, end)
+    audio = load_audio(path, start, end, af=cfg["asr"].get("audio_filter"))
     if len(audio) < 10 * SR:
         log.warning("clip di %.0fs: consigliati 20-30 s di parlato", len(audio) / SR)
     dia = DiarizationPipeline(model_name=cfg["diarization"]["model"], token=token, device=_device())

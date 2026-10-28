@@ -9,12 +9,15 @@ paths:
 hf_token_env: HF_TOKEN   # nome della variabile d'ambiente col token Hugging Face
 
 asr:
-  model: large-v3-turbo
+  model: large-v3         # più preciso di large-v3-turbo; sulla 2060 ~6 s per blocco da 5 min
   compute_type: int8      # int8 su 6 GB VRAM; float16 se avanza memoria
   batch_size: 8           # abbassa a 4 se va in OOM
   language: it
   # Nomi e termini ricorrenti: aiutano Whisper a scriverli giusti
   initial_prompt: "Riunione di lavoro. Partecipanti: Marco, Giulia, Luca, Sara, Paolo."
+  # Pulizia audio prima di Whisper (ffmpeg): toglie rombi/sibili e alza le voci lontane. "" = disattiva.
+  # Evitare la riduzione rumore aggressiva (afftdn): nelle prove fa inventare più frasi.
+  audio_filter: "highpass=f=80,lowpass=f=7500,dynaudnorm=f=150:g=15:p=0.9:m=20"
 
 diarization:
   model: pyannote/speaker-diarization-community-1
