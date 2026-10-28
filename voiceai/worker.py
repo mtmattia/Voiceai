@@ -103,12 +103,14 @@ class Worker(threading.Thread):
         kw = db.one("SELECT id FROM recordings WHERE status='done' AND keywords IS NULL LIMIT 1")
         day = db.one("SELECT day FROM days WHERE dirty=1 AND last_activity < ? ORDER BY day LIMIT 1",
                      (time.time() - w["day_idle_minutes"] * 60,))
-        # resoconto per situazioni: si aggiorna presto (10 min senza blocchi nuovi), è una chiamata leggera
+        # resoconto per situazioni (chiamata leggera): dopo 10 min senza blocchi nuovi, oppure ogni 6 blocchi nuovi
+        # (~30 min) anche se si sta ancora registrando
         sit = None if (mem or kw) else db.one(
-            """SELECT d.day FROM days d WHERE d.last_activity < ? AND
-               (SELECT COUNT(*) FROM recordings r WHERE r.day=d.day AND r.status='done' AND r.keywords IS NOT NULL)
-               > COALESCE(d.situations_n, 0) ORDER BY d.day LIMIT 1""",
-            (time.time() - w.get("situations_idle_minutes", 10) * 60,))
+            """SELECT day FROM (SELECT d.day, d.last_activity, COALESCE(d.situations_n, 0) AS n,
+                 (SELECT COUNT(*) FROM recordings r WHERE r.day=d.day AND r.status='done' AND r.keywords IS NOT NULL) AS ready
+                 FROM days d)
+               WHERE ready > n AND (last_activity < ? OR ready - n >= ?) ORDER BY day LIMIT 1""",
+            (time.time() - w.get("situations_idle_minutes", 10) * 60, w.get("situations_every_blocks", 6)))
         if not (mem or kw or day or sit):
             return False
         self.shared.acquire()

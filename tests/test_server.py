@@ -419,3 +419,18 @@ def test_riconosci_la_mia_voce(env, monkeypatch):
     p = db.one("SELECT * FROM persons WHERE id=?", (me,))
     assert p["is_owner"] == 1 and p["confirmed"] == 1
     assert db.one("SELECT COUNT(*) n FROM prints WHERE person_id=? AND manual=1", (me,))["n"] == 1
+
+
+def test_resoconto_mentre_si_registra(env, monkeypatch):
+    cfg, db, w, c = env
+    cfg["worker"]["situations_idle_minutes"] = 60          # si sta ancora registrando
+    cfg["worker"]["situations_every_blocks"] = 2
+    t0 = time.mktime((2026, 10, 28, 9, 0, 0, 0, 0, -1))
+    calls = []
+    monkeypatch.setattr(insights, "build_situations", lambda db_, cfg_, day: calls.append(day) or
+                        db_.q("UPDATE days SET situations_n=99 WHERE day=?", (day,)))
+    for i in range(2):
+        up(c, BLOCK1 | {"segs": BLOCK1["segs"][i:i + 1]}, i, t0 + 300 * i)
+    db.q("UPDATE recordings SET status='done', corrected=1, memos_done=1, keywords='[]'")
+    db.q("INSERT INTO days(day, dirty, last_activity) VALUES('2026-10-28', 0, ?)", (time.time(),))
+    assert w.step() and calls == ["2026-10-28"]
