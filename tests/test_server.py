@@ -284,3 +284,23 @@ def test_sync_pagination(env):
         if not r["more"]:
             break
     assert seen == {u["id"] for u in db.q("SELECT id FROM utterances")}
+
+
+def test_gpu_lock_tra_processi(env, tmp_path):
+    """Il watcher chiede la GPU: il server a riposo scarica i modelli e la cede."""
+    import subprocess, sys
+    cfg, db, w, client = env
+    w.shared.acquire()
+    w.engine.loaded = True
+    code = ("import sys, pathlib; from voiceai import gpu; "
+            f"cfg={{'storage': {{'data_dir': pathlib.Path({str(tmp_path)!r})}}}}; "
+            "l=gpu.GpuLock(cfg); l.acquire(); print('preso')")
+    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    for _ in range(100):
+        if w.shared.wanted():
+            break
+        time.sleep(0.05)
+    assert w.shared.wanted()
+    w.yield_gpu()
+    assert p.communicate(timeout=10)[0].strip() == "preso"
+    assert not w.engine.loaded and not w.shared.held

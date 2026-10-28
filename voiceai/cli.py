@@ -47,23 +47,32 @@ def main(argv=None):
     from .speakers import VoiceprintStore
     store = VoiceprintStore(cfg["paths"]["voiceprints"])
 
+    from .gpu import exclusive
+
     if a.cmd == "processa":
         from . import pipeline
-        print(pipeline.process(cfg, a.audio, config.hf_token(cfg)))
+        with exclusive(cfg):
+            print(pipeline.process(cfg, a.audio, config.hf_token(cfg)))
     elif a.cmd == "ascolta":
         from . import pipeline, watcher
         tok = config.hf_token(cfg)
-        watcher.run(cfg, lambda p: pipeline.process(cfg, p, tok), once=a.once)
+
+        def handle(p):
+            with exclusive(cfg):
+                return pipeline.process(cfg, p, tok)
+        watcher.run(cfg, handle, once=a.once)
     elif a.cmd == "registra-voce":
         from . import asr
-        emb = asr.embed_clip(a.audio, cfg, config.hf_token(cfg), a.inizio, a.fine)
+        with exclusive(cfg):
+            emb = asr.embed_clip(a.audio, cfg, config.hf_token(cfg), a.inizio, a.fine)
         print(f"{a.nome}: {store.add(a.nome, emb, source=a.audio)} impronte")
     elif a.cmd == "impara":
         from . import pipeline
         print(pipeline.learn(cfg, a.cartella, a.speaker, a.nome, minutes=a.verbale))
     elif a.cmd == "verbale":
         from . import pipeline
-        print(pipeline.make_minutes(cfg, a.cartella))
+        with exclusive(cfg):
+            print(pipeline.make_minutes(cfg, a.cartella))
     elif a.cmd == "server":
         from . import server
         server.serve(cfg, config.api_token(cfg), None if a.senza_worker else config.hf_token(cfg),
@@ -71,7 +80,8 @@ def main(argv=None):
     elif a.cmd == "aggiungi-persona":
         from . import asr
         from .db import DB
-        emb = asr.embed_clip(a.audio, cfg, config.hf_token(cfg), a.inizio, a.fine)
+        with exclusive(cfg):
+            emb = asr.embed_clip(a.audio, cfg, config.hf_token(cfg), a.inizio, a.fine)
         db = DB(cfg["storage"]["data_dir"] / "voiceai.db")
         pid = db.new_person(a.nome, confirmed=True, owner=a.io)
         if a.io:

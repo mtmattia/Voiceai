@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import insights, llm, memos, names, people, text
+from . import gpu, insights, llm, memos, names, people, text
 
 log = logging.getLogger(__name__)
 
@@ -46,16 +46,26 @@ class Worker(threading.Thread):
         self.wake = threading.Event()
         self.stop_flag = False
         self.gpu = threading.Lock()   # una cosa alla volta sulla GPU (worker o domanda dall'app)
+        self.shared = gpu.GpuLock(cfg)   # ... e rispetto agli altri processi (watcher, CLI)
 
     def step(self):
         with self.gpu:
             return self._step()
+
+    def yield_gpu(self):
+        """A riposo: se un altro processo aspetta la GPU, scarica i modelli e cede il lock."""
+        with self.gpu:
+            if self.shared.held and self.shared.wanted():
+                self.engine.unload()
+                self.shared.release()
+                log.info("GPU ceduta a un altro processo")
 
     def _step(self):
         """Un'unità di lavoro. -> True se ha fatto qualcosa."""
         db, cfg, w = self.db, self.cfg, self.cfg["worker"]
         rec = db.one("SELECT * FROM recordings WHERE status='pending' ORDER BY started_at, idx LIMIT 1")
         if rec:
+            self.shared.acquire()
             if not self.engine.loaded:
                 llm.unload_all(cfg)
             try:
@@ -75,6 +85,7 @@ class Worker(threading.Thread):
                      (time.time() - w["day_idle_minutes"] * 60,))
         if not (mem or kw or day):
             return False
+        self.shared.acquire()
         self.engine.unload()   # libera VRAM per Ollama
         try:
             if mem:
@@ -99,11 +110,13 @@ class Worker(threading.Thread):
         """Domanda dall'app: aspetta il blocco in corso, libera la VRAM, risponde."""
         from . import ask
         with self.gpu:
+            self.shared.acquire()
             self.engine.unload()
             return ask.answer(self.db, self.cfg, question)
 
     def run(self):
         while not self.stop_flag:
             if not self.step():
+                self.yield_gpu()
                 self.wake.wait(self.cfg["worker"]["poll_seconds"])
                 self.wake.clear()
