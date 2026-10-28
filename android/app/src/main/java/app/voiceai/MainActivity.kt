@@ -27,6 +27,7 @@ import app.voiceai.Ui.button
 import app.voiceai.Ui.card
 import app.voiceai.Ui.column
 import app.voiceai.Ui.dp
+import app.voiceai.Ui.icon
 import app.voiceai.Ui.iconButton
 import app.voiceai.Ui.input
 import app.voiceai.Ui.insetSafe
@@ -69,17 +70,17 @@ class MainActivity : Activity() {
         status = text("", 12f, 0xB3FFFFFF.toInt())
         titles.add(status)
         head.add(titles, weight = 1f)
-        head.add(iconButton("👥") { open(PersonsActivity::class.java) }, marginEnd = 8)
-        head.add(iconButton("⚙") { open(SettingsActivity::class.java) })
+        head.add(iconButton(R.drawable.ms_group) { open(PersonsActivity::class.java) }, marginEnd = 8)
+        head.add(iconButton(R.drawable.ms_settings) { open(SettingsActivity::class.java) })
         col.add(head)
 
         val nav = row().apply { setPadding(0, dp(14), 0, 0) }
-        nav.add(tile("📝", "Da fare", 0xFFE5B454.toInt()) { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 8)
-        nav.add(tile("📅", "Agenda", 0xFF4CC38A.toInt()) {
+        nav.add(tile(R.drawable.ms_checklist, "Da fare", 0xFFE5B454.toInt()) { open(MemoActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile(R.drawable.ms_calendar_month, "Agenda", 0xFF4CC38A.toInt()) {
             startActivity(Intent(this, MemoActivity::class.java).putExtra("kind", "agenda"))
         }, weight = 1f, marginEnd = 8)
-        nav.add(tile("🗂️", "Archivio", 0xFF5B8DEF.toInt()) { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 8)
-        nav.add(tile("🕑", "Cronologia", 0xFFB07CF0.toInt()) { open(TimelineActivity::class.java) }, weight = 1f)
+        nav.add(tile(R.drawable.ms_folder_open, "Archivio", 0xFF5B8DEF.toInt()) { open(ArchiveActivity::class.java) }, weight = 1f, marginEnd = 8)
+        nav.add(tile(R.drawable.ms_history, "Cronologia", 0xFFB07CF0.toInt()) { open(TimelineActivity::class.java) }, weight = 1f)
         col.add(nav)
 
         // ricerca: funziona anche durante la registrazione (il servizio è indipendente dalla schermata)
@@ -93,11 +94,12 @@ class MainActivity : Activity() {
             setOnEditorActionListener { _, _, _ -> search(); true }
         }
         pill.add(query, weight = 1f)
-        pill.add(text("🔍", 18f).apply {
+        pill.add(android.widget.ImageView(this).apply {
+            setImageDrawable(icon(R.drawable.ms_search, 0xCCFFFFFF.toInt()))
             setPadding(dp(10), dp(8), dp(10), dp(8)); isClickable = true; setOnClickListener { search() }
         })
         sr.add(pill, weight = 1f, marginEnd = 8)
-        sr.add(button("✨ Chiedi", primary = true) { ask() })
+        sr.add(button("Chiedi", primary = true, iconRes = R.drawable.ms_auto_awesome) { ask() })
         col.add(sr)
 
         topSpace = Space(this)
@@ -257,7 +259,7 @@ class MainActivity : Activity() {
 
     private fun closeRow() = row().apply {
         add(text("", 1f), weight = 1f)
-        add(button("✕") { showResults(emptyList()); query.setText("") })
+        add(iconButton(R.drawable.ms_close) { showResults(emptyList()); query.setText("") })
     }
 
     private fun search() {

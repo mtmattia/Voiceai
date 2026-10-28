@@ -65,33 +65,53 @@ object Ui {
         return ripple(android.graphics.drawable.LayerDrawable(arrayOf(fill, shine)))
     }
 
-    fun Context.button(s: String, primary: Boolean = false, onClick: () -> Unit) = Button(this).apply {
+    /** Icona Material Symbols (vettoriale) colorata. */
+    fun Context.icon(res: Int, tint: Int = FG): android.graphics.drawable.Drawable =
+        getDrawable(res)!!.mutate().apply { setTint(tint) }
+
+    fun Context.button(s: String, primary: Boolean = false, iconRes: Int? = null, onClick: () -> Unit) = Button(this).apply {
         text = s; isAllCaps = false; textSize = 14f; stateListAnimator = null; isSingleLine = true
         // primario: vetro pieno (bianco) con testo scuro, come un "filled button" Material
         setTextColor(if (primary) 0xFF101418.toInt() else FG)
         if (primary) setTypeface(typeface, Typeface.BOLD)
         background = glass(dp(22).toFloat(), strong = primary)
         elevation = if (primary) dp(3).toFloat() else 0f
-        setPadding(dp(14), dp(6), dp(14), dp(6)); minHeight = 0; minimumHeight = 0
+        setPadding(dp(if (iconRes != null) 12 else 14), dp(6), dp(16), dp(6)); minHeight = 0; minimumHeight = 0
+        iconRes?.let { setIcon(it) }
         setOnClickListener { onClick() }
     }
 
-    /** Riquadro di navigazione: icona grande + etichetta, sfondo sfumato. */
-    fun Context.tile(icon: String, label: String, tint: Int, onClick: () -> Unit) = LinearLayout(this).apply {
+    /** Cambia l'icona a sinistra del testo di un pulsante (stesso colore del testo). */
+    fun Button.setIcon(res: Int) {
+        val d = context.icon(res, currentTextColor).apply { setBounds(0, 0, context.dp(20), context.dp(20)) }
+        setCompoundDrawablesRelative(d, null, null, null)
+        compoundDrawableTintList = android.content.res.ColorStateList.valueOf(currentTextColor)   // il tema altrimenti la ricolora
+        compoundDrawablePadding = context.dp(6)
+        gravity = Gravity.CENTER
+    }
+
+    /** Riquadro di navigazione: icona in un cerchio tonale (Material 3) + etichetta, su vetro. */
+    fun Context.tile(iconRes: Int, label: String, tint: Int, onClick: () -> Unit) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
         setPadding(dp(4), dp(12), dp(4), dp(10))
         background = glass(dp(20).toFloat())
         isClickable = true; setOnClickListener { onClick() }
-        addView(TextView(context).apply { text = icon; textSize = 22f; gravity = Gravity.CENTER })
+        addView(android.widget.ImageView(context).apply {
+            setImageDrawable(icon(iconRes, Color.WHITE))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(150, Color.red(tint), Color.green(tint), Color.blue(tint))) }
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        })
         addView(TextView(context).apply {
             text = label; textSize = 12f; setTextColor(FG); gravity = Gravity.CENTER; isSingleLine = true
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(6), 0, 0)
         })
     }
 
     /** Pulsante tondo con sola icona. */
-    fun Context.iconButton(icon: String, onClick: () -> Unit) = TextView(this).apply {
-        text = icon; textSize = 18f; gravity = Gravity.CENTER
+    fun Context.iconButton(iconRes: Int, onClick: () -> Unit) = android.widget.ImageView(this).apply {
+        setImageDrawable(icon(iconRes))
+        scaleType = android.widget.ImageView.ScaleType.CENTER
         background = glass(dp(21).toFloat())
         isClickable = true; setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
@@ -144,7 +164,7 @@ object Ui {
     fun Activity.page(title: String, header: LinearLayout.() -> Unit = {}): LinearLayout {
         val root = column(0).apply { setBackgroundColor(BG); insetSafe() }
         val top = row().apply { setPadding(dp(16), dp(12), dp(16), dp(8)) }
-        top.add(iconButton("←") { finish() }, marginEnd = 10)
+        top.add(iconButton(R.drawable.ms_arrow_back) { finish() }, marginEnd = 10)
         top.add(text(title, 19f, bold = true), weight = 1f)
         top.header()
         root.add(top)

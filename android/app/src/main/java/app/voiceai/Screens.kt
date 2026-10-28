@@ -20,6 +20,7 @@ import app.voiceai.Ui.card
 import app.voiceai.Ui.column
 import app.voiceai.Ui.dp
 import app.voiceai.Ui.iconButton
+import app.voiceai.Ui.setIcon
 import app.voiceai.Ui.input
 import app.voiceai.Ui.page
 import app.voiceai.Ui.row
@@ -47,7 +48,7 @@ class MemoActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        body = page(if (agenda) "Agenda" else "Da fare") { add(iconButton("↻") { SyncWorker.now(this@MemoActivity); render() }) }
+        body = page(if (agenda) "Agenda" else "Da fare") { add(iconButton(R.drawable.ms_refresh) { SyncWorker.now(this@MemoActivity); render() }) }
         render()
     }
 
@@ -64,7 +65,7 @@ class MemoActivity : Activity() {
         form.add(dsc.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8) })
         val btns = row().apply { setPadding(0, dp(10), 0, 0) }
         fun save(ts: Double?) { if (t.text.isNotBlank()) { db.addMemo(t.text.toString(), ts, dsc.text.toString(), kind); changed() } }
-        btns.add(button(if (agenda) "📅 Data e ora" else "+ ora") { pickDue { ts -> save(ts) } }, marginEnd = 8)
+        btns.add(button(if (agenda) "Data e ora" else "Con orario", iconRes = R.drawable.ms_schedule) { pickDue { ts -> save(ts) } }, marginEnd = 8)
         if (!agenda) btns.add(button("Aggiungi", primary = true) { save(null) })
         form.add(btns)
         body.add(form)
@@ -124,8 +125,8 @@ class MemoActivity : Activity() {
             info.add(LinearLayout(this).apply { addView(chip) })
         }
         r.add(info, weight = 1f)
-        r.add(iconButton("🕑") { pickDue { ts -> db.setMemoDue(uid, ts); changed() } }, marginEnd = 6)
-        r.add(iconButton("✕") {
+        r.add(iconButton(R.drawable.ms_schedule) { pickDue { ts -> db.setMemoDue(uid, ts); changed() } }, marginEnd = 6)
+        r.add(iconButton(R.drawable.ms_close) {
             AlertDialog.Builder(this).setMessage("Eliminare il memo?")
                 .setPositiveButton("Elimina") { _, _ -> db.deleteMemo(uid); changed() }
                 .setNegativeButton("Annulla", null).show()
@@ -181,7 +182,7 @@ class PersonsActivity : Activity() {
                 lateinit var play: android.widget.Button
                 add(row().apply {
                     setPadding(0, dp(10), 0, 0)
-                    play = button("▶ Ascolta", primary = true) { listen(id, play) }
+                    play = button("Ascolta", primary = true, iconRes = R.drawable.ms_play_arrow) { listen(id, play) }
                     add(play, weight = 1f, marginEnd = 8)
                     add(button("Rinomina") { rename(id, p["name"] as String) }, weight = 1f)
                 })
@@ -208,11 +209,11 @@ class PersonsActivity : Activity() {
                 r.onSuccess {
                     player = android.media.MediaPlayer().apply {
                         setDataSource(f.path); prepare(); start()
-                        setOnCompletionListener { stopVoice(); b.text = "▶ Ascolta" }
+                        setOnCompletionListener { stopVoice() }
                     }
-                    b.text = "■ Stop"
+                    b.text = "Stop"; b.setIcon(R.drawable.ms_stop)
                 }.onFailure {
-                    b.text = "▶ Ascolta"
+                    b.text = "Ascolta"; b.setIcon(R.drawable.ms_play_arrow)
                     Toast.makeText(this, "Non riesco a farla sentire: ${it.message}", Toast.LENGTH_LONG).show()
                 }
             }
@@ -270,7 +271,7 @@ class ArchiveActivity : Activity() {
     }
 
     private fun showDays() {
-        val body = page("Archivio") { add(iconButton("↻") { SyncWorker.now(this@ArchiveActivity); recreate() }) }
+        val body = page("Archivio") { add(iconButton(R.drawable.ms_refresh) { SyncWorker.now(this@ArchiveActivity); recreate() }) }
         val ds = db.days()
         if (ds.isEmpty()) body.add(text("Ancora niente: le giornate arrivano dopo la sincronizzazione col PC.", 14f, Ui.MUT))
         ds.forEach { d ->
@@ -412,7 +413,7 @@ class TimelineActivity : Activity() {
     }
 
     private fun render() {
-        val body = page("Cronologia $day") { add(iconButton("📅") { pickDay() }) }
+        val body = page("Cronologia $day") { add(iconButton(R.drawable.ms_calendar_month) { pickDay() }) }
         val c = column(0).apply { add(text("Chiedo al PC…", 14f, Ui.MUT)) }
         body.add(c)
         io.execute {
@@ -444,7 +445,7 @@ class TimelineActivity : Activity() {
                         })
                     }
                 }.onFailure {
-                    c.add(text(if (Prefs(this).server.isBlank()) "Imposta server e token in ⚙ per vedere la cronologia."
+                    c.add(text(if (Prefs(this).server.isBlank()) "Imposta server e token nelle impostazioni per vedere la cronologia."
                                else "PC non raggiungibile (${it.message}).", 14f, Ui.WARN))
                 }
             }
