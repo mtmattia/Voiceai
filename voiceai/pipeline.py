@@ -88,7 +88,7 @@ def process(cfg, audio_path, token):
 
     llm.unload_all(cfg)
     r = asr.transcribe(audio_path, cfg, token)
-    segs = text.fill_speakers(text.drop_hallucinations(r["segments"]))
+    segs = text.fill_speakers(text.drop_hallucinations(r["segments"], cfg["asr"].get("initial_prompt")))
     trns = text.turns(segs)
     ident = identify(cfg, trns, r["embeddings"], r["talk"])
 

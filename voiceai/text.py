@@ -14,8 +14,19 @@ def is_hallucination(t):
     return bool(parts) and all(p in HALLUCINATIONS for p in parts)
 
 
-def drop_hallucinations(segs):
-    return [s for s in segs if not is_hallucination(s.get("text", ""))]
+def prompt_terms(prompt):
+    """Nomi e termini dell'initial_prompt: Whisper tende a ripeterli da soli nei silenzi."""
+    return {p.strip().lower() for p in re.split(r"[.,:;!?]+", prompt or "") if p.strip()}
+
+
+def is_prompt_echo(t, terms):
+    parts = [p.strip().lower() for p in re.split(r"[.,:;!?…]+", t) if p.strip()]
+    return bool(terms) and bool(parts) and all(p in terms for p in parts)
+
+
+def drop_hallucinations(segs, prompt=None):
+    terms = prompt_terms(prompt)
+    return [s for s in segs if not (is_hallucination(s.get("text", "")) or is_prompt_echo(s.get("text", ""), terms))]
 
 
 def ts(sec):

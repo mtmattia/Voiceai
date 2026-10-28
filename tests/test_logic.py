@@ -174,3 +174,9 @@ def test_allucinazioni():
     segs = [{"text": "Grazie."}, {"text": "Grazie. Grazie a tutti."}, {"text": "Grazie, Marco, ci vediamo."},
             {"text": "Sottotitoli creati dalla comunità Amara.org"}, {"text": "Il preventivo è pronto."}]
     assert [s["text"] for s in text.drop_hallucinations(segs)] == ["Grazie, Marco, ci vediamo.", "Il preventivo è pronto."]
+
+
+def test_eco_del_prompt():
+    prompt = "Conversazione di lavoro tra colleghi. Nomi e termini: Eros, Fast Wash."
+    segs = [{"text": "Eros, Fast Wash."}, {"text": "Eros"}, {"text": "Eros deve andare a montare."}]
+    assert [s["text"] for s in text.drop_hallucinations(segs, prompt)] == ["Eros deve andare a montare."]
